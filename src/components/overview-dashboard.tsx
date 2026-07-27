@@ -1,0 +1,403 @@
+"use client";
+
+import Link from "next/link";
+import {
+  ArrowUpRight,
+  BadgeDollarSign,
+  CircleDollarSign,
+  Plus,
+  Radar,
+  RefreshCw,
+  ShoppingBag,
+  TrendingUp,
+} from "lucide-react";
+import { useState } from "react";
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import type {
+  IntegrationConnection,
+  ProjectSummary,
+} from "@/lib/domain";
+import { calculatePerformance } from "@/lib/metrics";
+import {
+  cn,
+  formatCurrency,
+  formatNumber,
+  formatPercent,
+} from "@/lib/utils";
+
+interface OverviewDashboardProps {
+  projects: ProjectSummary[];
+  connections: IntegrationConnection[];
+  source: "live" | "demo";
+  warning?: string;
+}
+
+const statusLabel = {
+  connected: "Conectada",
+  attention: "Atencao",
+  disconnected: "Desconectada",
+  revoked: "Revogada",
+};
+
+export function OverviewDashboard({
+  projects,
+  connections,
+  source,
+  warning,
+}: OverviewDashboardProps) {
+  const [selectedProject, setSelectedProject] = useState("all");
+  const visibleProjects =
+    selectedProject === "all"
+      ? projects.filter((project) => project.status === "active")
+      : projects.filter((project) => project.id === selectedProject);
+  const rows = visibleProjects.flatMap((project) => project.dailyMetrics);
+  const totals = calculatePerformance(rows);
+
+  const byDate = Array.from(
+    rows.reduce((dates, row) => {
+      const current = dates.get(row.date) ?? {
+        date: row.date,
+        investment: 0,
+        revenue: 0,
+        coreSales: 0,
+      };
+      current.investment += row.investment;
+      current.revenue += row.revenue;
+      current.coreSales += row.coreSales;
+      dates.set(row.date, current);
+      return dates;
+    }, new Map<string, { date: string; investment: number; revenue: number; coreSales: number }>()),
+  )
+    .map(([, value]) => value)
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  const kpis = [
+    {
+      label: "Faturamento liquido",
+      value: formatCurrency(totals.revenue),
+      hint: `${formatNumber(totals.coreSales)} vendas core`,
+      icon: CircleDollarSign,
+      color: "var(--mint)",
+    },
+    {
+      label: "Investimento Meta",
+      value: formatCurrency(totals.investment),
+      hint: `${formatPercent(totals.ctr)} CTR consolidado`,
+      icon: Radar,
+      color: "var(--coral)",
+    },
+    {
+      label: "Resultado",
+      value: formatCurrency(totals.profit),
+      hint: `${formatPercent(totals.margin)} de margem`,
+      icon: BadgeDollarSign,
+      color: totals.profit >= 0 ? "var(--signal)" : "var(--coral)",
+    },
+    {
+      label: "ROAS real",
+      value: `${totals.roas.toFixed(2)}x`,
+      hint: `CPA medio ${formatCurrency(totals.cpa)}`,
+      icon: TrendingUp,
+      color: "var(--violet)",
+    },
+  ];
+
+  return (
+    <div className="space-y-7">
+      <header className="rise-in flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+        <div>
+          <p className="eyebrow mb-3">Sala de operacoes</p>
+          <h1 className="max-w-3xl text-4xl font-black tracking-[-0.055em] sm:text-5xl">
+            Performance sem caixas-pretas.
+          </h1>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-[var(--muted)]">
+            Trafego, vendas e configuracoes reunidos em uma visao operacional da
+            Genesis.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={selectedProject}
+            onChange={(event) => setSelectedProject(event.target.value)}
+            className="field min-w-48 bg-[var(--paper)] text-sm font-semibold"
+          >
+            <option value="all">Todos os projetos ativos</option>
+            {projects.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.name}
+              </option>
+            ))}
+          </select>
+          <Link
+            href="/projects/new"
+            className="inline-flex h-11 items-center gap-2 rounded-xl bg-[var(--ink)] px-4 text-sm font-bold text-white transition hover:-translate-y-0.5"
+          >
+            <Plus size={17} /> Novo projeto
+          </Link>
+        </div>
+      </header>
+
+      {(source === "demo" || warning) && (
+        <div className="rounded-xl border border-amber-400/30 bg-amber-100/55 px-4 py-3 text-xs font-medium text-amber-950">
+          {warning ??
+            "Modo demonstracao ativo. Configure o Supabase para visualizar os dados reais."}
+        </div>
+      )}
+
+      <section className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
+        {kpis.map((kpi, index) => {
+          const Icon = kpi.icon;
+          return (
+            <article
+              key={kpi.label}
+              className="panel rise-in relative overflow-hidden rounded-[22px] p-5"
+              style={{ animationDelay: `${index * 60}ms` }}
+            >
+              <div
+                className="absolute inset-x-0 top-0 h-1"
+                style={{ background: kpi.color }}
+              />
+              <div className="mb-7 flex items-start justify-between">
+                <p className="text-[11px] font-bold uppercase tracking-[0.13em] text-[var(--muted)]">
+                  {kpi.label}
+                </p>
+                <div className="grid size-9 place-items-center rounded-xl bg-black/[0.045]">
+                  <Icon size={17} />
+                </div>
+              </div>
+              <p className="text-2xl font-black tracking-[-0.04em] sm:text-3xl">
+                {kpi.value}
+              </p>
+              <p className="mt-2 text-xs text-[var(--muted)]">{kpi.hint}</p>
+            </article>
+          );
+        })}
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-[1.55fr_.8fr]">
+        <article className="panel rounded-[24px] p-5 sm:p-6">
+          <div className="mb-6 flex items-start justify-between gap-3">
+            <div>
+              <p className="eyebrow">Pulso financeiro</p>
+              <h2 className="mt-2 text-xl font-black tracking-[-0.035em]">
+                Receita e investimento diario
+              </h2>
+            </div>
+            <div className="flex gap-4 text-[10px] font-bold uppercase tracking-wider text-[var(--muted)]">
+              <span className="flex items-center gap-1.5">
+                <i className="size-2 rounded-full bg-[var(--mint)]" /> Receita
+              </span>
+              <span className="flex items-center gap-1.5">
+                <i className="size-2 rounded-full bg-[var(--coral)]" /> Meta
+              </span>
+            </div>
+          </div>
+          <div className="h-72 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={byDate} margin={{ left: -18, right: 8 }}>
+                <defs>
+                  <linearGradient id="revenue" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#61d6c8" stopOpacity={0.35} />
+                    <stop offset="100%" stopColor="#61d6c8" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke="#dcd8cf" strokeDasharray="4 5" vertical={false} />
+                <XAxis
+                  dataKey="date"
+                  tickFormatter={(value) => value.slice(8)}
+                  tick={{ fontSize: 10, fill: "#69717c" }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  tickFormatter={(value) => formatNumber(value, true)}
+                  tick={{ fontSize: 10, fill: "#69717c" }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip
+                  formatter={(value) => formatCurrency(Number(value))}
+                  labelFormatter={(label) => `Dia ${String(label).slice(8)}`}
+                  contentStyle={{
+                    background: "#121a24",
+                    border: 0,
+                    borderRadius: 12,
+                    color: "white",
+                    fontSize: 12,
+                  }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="revenue"
+                  stroke="#20a999"
+                  strokeWidth={2.5}
+                  fill="url(#revenue)"
+                />
+                <Area
+                  type="monotone"
+                  dataKey="investment"
+                  stroke="#ff6b5e"
+                  strokeWidth={2}
+                  fill="transparent"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </article>
+
+        <article className="rounded-[24px] bg-[var(--sidebar)] p-5 text-white sm:p-6">
+          <div className="mb-6 flex items-center justify-between">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/35">
+                Ritmo de vendas
+              </p>
+              <h2 className="mt-2 text-xl font-black tracking-[-0.035em]">
+                Core por dia
+              </h2>
+            </div>
+            <ShoppingBag size={19} className="text-[var(--signal)]" />
+          </div>
+          <div className="h-72 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={byDate} margin={{ left: -28 }}>
+                <CartesianGrid stroke="rgba(255,255,255,.07)" vertical={false} />
+                <XAxis
+                  dataKey="date"
+                  tickFormatter={(value) => value.slice(8)}
+                  tick={{ fontSize: 10, fill: "rgba(255,255,255,.35)" }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  tick={{ fontSize: 10, fill: "rgba(255,255,255,.35)" }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip
+                  cursor={{ fill: "rgba(255,255,255,.04)" }}
+                  contentStyle={{
+                    background: "#f1eee7",
+                    border: 0,
+                    borderRadius: 12,
+                    color: "#151c26",
+                    fontSize: 12,
+                  }}
+                />
+                <Bar dataKey="coreSales" fill="#d8ff63" radius={[5, 5, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </article>
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-[1.25fr_1fr]">
+        <article className="panel rounded-[24px] p-5 sm:p-6">
+          <div className="mb-5 flex items-center justify-between">
+            <div>
+              <p className="eyebrow">Carteira ativa</p>
+              <h2 className="mt-2 text-xl font-black tracking-[-0.035em]">
+                Projetos em operacao
+              </h2>
+            </div>
+            <Link
+              href="/projects"
+              className="text-xs font-bold text-[var(--muted)] hover:text-[var(--ink)]"
+            >
+              Ver todos
+            </Link>
+          </div>
+          <div className="space-y-2">
+            {projects.slice(0, 4).map((project) => {
+              const performance = calculatePerformance(project.dailyMetrics);
+              return (
+                <Link
+                  key={project.id}
+                  href={`/projects/${project.id}`}
+                  className="group flex items-center gap-3 rounded-2xl border border-transparent px-2 py-3 transition hover:border-[var(--line)] hover:bg-white/60 sm:gap-4 sm:px-3"
+                >
+                  <div
+                    className="grid size-11 shrink-0 place-items-center rounded-[14px] text-xs font-black text-[var(--sidebar)]"
+                    style={{ background: project.color }}
+                  >
+                    {project.initials}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-extrabold">{project.name}</p>
+                    <p className="truncate text-[11px] text-[var(--muted)]">
+                      {project.expertName}
+                    </p>
+                  </div>
+                  <div className="hidden text-right sm:block">
+                    <p className="text-sm font-black">{formatCurrency(performance.revenue)}</p>
+                    <p className="text-[10px] text-[var(--muted)]">
+                      {performance.roas.toFixed(2)}x ROAS
+                    </p>
+                  </div>
+                  <ArrowUpRight
+                    size={16}
+                    className="text-[var(--muted)] transition group-hover:-translate-y-0.5 group-hover:translate-x-0.5"
+                  />
+                </Link>
+              );
+            })}
+          </div>
+        </article>
+
+        <article className="panel rounded-[24px] p-5 sm:p-6">
+          <div className="mb-5 flex items-center justify-between">
+            <div>
+              <p className="eyebrow">Infraestrutura</p>
+              <h2 className="mt-2 text-xl font-black tracking-[-0.035em]">
+                Saude das conexoes
+              </h2>
+            </div>
+            <RefreshCw size={17} className="text-[var(--muted)]" />
+          </div>
+          <div className="space-y-3">
+            {connections.map((connection) => (
+              <div
+                key={connection.id}
+                className="flex items-center gap-3 rounded-2xl border border-[var(--line)] bg-white/45 p-3.5"
+              >
+                <span
+                  className={cn(
+                    "size-2.5 rounded-full",
+                    connection.status === "connected" && "bg-emerald-500",
+                    connection.status === "attention" && "bg-amber-400",
+                    connection.status === "disconnected" && "bg-slate-300",
+                    connection.status === "revoked" && "bg-red-500",
+                  )}
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-extrabold">{connection.name}</p>
+                  <p className="text-[10px] text-[var(--muted)]">
+                    {connection.accountCount} contas vinculadas
+                  </p>
+                </div>
+                <span className="rounded-full bg-black/[0.045] px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider text-[var(--muted)]">
+                  {statusLabel[connection.status]}
+                </span>
+              </div>
+            ))}
+          </div>
+          <Link
+            href="/integrations"
+            className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--line)] py-2.5 text-xs font-bold transition hover:bg-white"
+          >
+            Gerenciar conexoes <ArrowUpRight size={14} />
+          </Link>
+        </article>
+      </section>
+    </div>
+  );
+}

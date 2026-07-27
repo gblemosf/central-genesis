@@ -1,0 +1,89 @@
+@import "tailwindcss";
+
+:root {
+  --canvas: #f1eee7;
+  --paper: #fbfaf6;
+  --ink: #151c26;
+  --muted: #69717c;
+  --line: #dcd8cf;
+  --sidebar: #121a24;
+  --signal: #d8ff63;
+  --coral: #ff6b5e;
+  --mint: #61d6c8;
+  --violet: #8f7cff;
+}
+
+@theme inline {
+  --color-background: var(--canvas);
+  --color-foreground: var(--ink);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background:
+    radial-gradient(circle at 78% -10%, rgba(216, 255, 99, 0.16), transparent 28rem),
+    var(--canvas);
+  color: var(--ink);
+  font-family: Arial, Helvetica, sans-serif;
+  text-rendering: optimizeLegibility;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+::selection {
+  background: var(--signal);
+  color: var(--sidebar);
+}
+
+.panel {
+  border: 1px solid color-mix(in srgb, var(--line), transparent 12%);
+  background: color-mix(in srgb, var(--paper), transparent 4%);
+  box-shadow: 0 18px 55px rgba(21, 28, 38, 0.06);
+}
+
+.eyebrow {
+  font-size: 0.67rem;
+  font-weight: 800;
+  letter-spacing: 0.19em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.field {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  background: rgba(255, 255, 255, 0.72);
+  padding: 0.72rem 0.85rem;
+  color: var(--ink);
+  outline: none;
+  transition: border-color 150ms, box-shadow 150ms;
+}
+
+.field:focus {
+  border-color: color-mix(in srgb, var(--violet), white 30%);
+  box-shadow: 0 0 0 3px rgba(143, 124, 255, 0.12);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .rise-in {
+    animation: rise-in 500ms ease-out both;
+  }
+
+  @keyframes rise-in {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
