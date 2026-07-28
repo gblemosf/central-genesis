@@ -14,6 +14,7 @@ Aplicacao interna para onboarding de experts, configuracao de integracoes, mapea
 ## Funcionalidades
 
 - Dashboard consolidado de trafego, vendas, lucro, margem, ROAS, CPA e AOV
+- Login e criacao de conta com Supabase Auth e autorizacao de bootstrap por e-mail
 - Projetos independentes por expert
 - Assistente de criacao de projeto
 - Multiplas conexoes Meta, incluindo mais de um Business Manager
@@ -113,5 +114,6 @@ git push -u origin main
 3. Mantenha `SUPABASE_SECRET_KEY` somente nos ambientes Server/Production apropriados.
 4. Execute o deploy.
 5. Configure a URL publicada nos webhooks de cada plataforma.
+6. Adicione `https://SEU_DOMINIO/login` aos Redirect URLs do Supabase Auth.
 
 O framework e o comando de build sao detectados automaticamente pela Vercel.

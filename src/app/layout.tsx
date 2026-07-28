@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { genesisLogoUrl } from "@/lib/brand";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -19,6 +20,13 @@ export const metadata: Metadata = {
   },
   description:
     "Operacao de projetos, integracoes, funis e performance da Genesis.",
+  icons: { icon: genesisLogoUrl, apple: genesisLogoUrl },
+  openGraph: {
+    title: "Central de Gestao Genesis",
+    description:
+      "Operacao de projetos, integracoes, funis e performance da Genesis.",
+    images: [{ url: genesisLogoUrl, width: 1536, height: 1536 }],
+  },
 };
 
 export default function RootLayout({

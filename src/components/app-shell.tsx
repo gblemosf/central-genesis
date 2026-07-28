@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { useState } from "react";
+import { GenesisLogo } from "@/components/genesis-logo";
 import { cn } from "@/lib/utils";
 
 const navigation = [
@@ -53,9 +54,8 @@ export function AppShell({ children, userLabel, demoMode }: AppShellProps) {
         )}
       >
         <div className="mb-9 flex items-center gap-3 px-2">
-          <div className="relative grid size-11 place-items-center overflow-hidden rounded-[14px] bg-[var(--signal)] font-black text-[var(--sidebar)]">
-            G
-            <span className="absolute -bottom-3 -right-3 size-6 rounded-full bg-[var(--coral)]" />
+          <div className="grid size-11 shrink-0 place-items-center overflow-hidden rounded-[14px] bg-black shadow-[0_0_0_1px_rgba(255,255,255,.08)]">
+            <GenesisLogo size={44} priority className="size-11 object-cover" />
           </div>
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-white/40">
