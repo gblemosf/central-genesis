@@ -52,7 +52,19 @@ export function apiErrorResponse(error: unknown) {
   if (error instanceof ApiError) {
     return Response.json({ error: error.message }, { status: error.status });
   }
-  if (error instanceof ZodError || error instanceof SyntaxError) {
+  if (error instanceof ZodError) {
+    return Response.json(
+      {
+        error: "Revise os campos informados.",
+        issues: error.issues.map((issue) => ({
+          field: issue.path.join("."),
+          message: issue.message,
+        })),
+      },
+      { status: 400 },
+    );
+  }
+  if (error instanceof SyntaxError) {
     return Response.json({ error: "Dados da requisicao invalidos." }, { status: 400 });
   }
   return Response.json({ error: "Erro interno." }, { status: 500 });

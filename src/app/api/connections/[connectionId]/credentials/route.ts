@@ -1,21 +1,24 @@
 import { ApiError, apiErrorResponse, requireAdmin } from "@/lib/api-auth";
 import {
   deleteConnectionSecret,
+  readConnectionSecret,
   storeConnectionSecret,
 } from "@/lib/secret-store";
+import type { Provider } from "@/lib/domain";
+import { serializeProviderCredentials } from "@/lib/provider-credentials";
 import { credentialInputSchema } from "@/lib/validators";
 
 async function assertConnection(connectionId: string) {
   const context = await requireAdmin();
   const { data, error } = await context.supabase
     .from("integration_connections")
-    .select("id")
+    .select("id,provider")
     .eq("id", connectionId)
     .eq("organization_id", context.organizationId)
     .maybeSingle();
   if (error) throw new ApiError("Nao foi possivel consultar a conexao.", 503);
   if (!data) throw new ApiError("Conexao nao encontrada.", 404);
-  return context;
+  return { context, connection: data };
 }
 
 export async function POST(
@@ -24,9 +27,15 @@ export async function POST(
 ) {
   try {
     const { connectionId } = await context.params;
-    await assertConnection(connectionId);
     const input = credentialInputSchema.parse(await request.json());
-    await storeConnectionSecret(connectionId, input.credential);
+    const result = await assertConnection(connectionId);
+    const existing = await readConnectionSecret(connectionId).catch(() => undefined);
+    const credential = serializeProviderCredentials(
+      result.connection.provider as Provider,
+      input.credentials,
+      existing,
+    );
+    await storeConnectionSecret(connectionId, credential);
 
     return Response.json({ stored: true });
   } catch (error) {

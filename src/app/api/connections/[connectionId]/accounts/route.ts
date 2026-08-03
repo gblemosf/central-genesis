@@ -1,5 +1,6 @@
 import { ApiError, apiErrorResponse, requireAdmin } from "@/lib/api-auth";
 import { fetchMetaCollection } from "@/lib/meta-api";
+import { decodeProviderCredentials } from "@/lib/provider-credentials";
 import { readConnectionSecret } from "@/lib/secret-store";
 
 interface MetaAccount {
@@ -19,7 +20,7 @@ export async function POST(
     const context = await requireAdmin();
     const { data: connection, error: connectionError } = await context.supabase
       .from("integration_connections")
-      .select("id,provider,system_user_id")
+      .select("id,provider,business_id,system_user_id")
       .eq("id", connectionId)
       .eq("organization_id", context.organizationId)
       .maybeSingle();
@@ -32,12 +33,12 @@ export async function POST(
       throw new ApiError("Descoberta automatica disponivel apenas para Meta.", 422);
     }
 
-    const credential = await readConnectionSecret(connectionId);
+    const storedCredential = await readConnectionSecret(connectionId);
+    const credential = decodeProviderCredentials("meta", storedCredential).accessToken;
+    if (!credential) throw new ApiError("Token de acesso Meta nao encontrado.", 422);
     const version = process.env.META_GRAPH_API_VERSION ?? "v25.0";
     const owner = connection.system_user_id || "me";
-    const edge = connection.system_user_id
-      ? "assigned_ad_accounts"
-      : "adaccounts";
+    const edge = connection.system_user_id ? "assigned_ad_accounts" : "adaccounts";
     const url = new URL(`https://graph.facebook.com/${version}/${owner}/${edge}`);
     url.searchParams.set(
       "fields",
@@ -50,6 +51,35 @@ export async function POST(
       credential,
       "A Meta recusou a listagem de contas.",
     );
+    let unassignedAccounts = 0;
+
+    if (connection.business_id && connection.system_user_id) {
+      const businessAccountRequests = ["owned_ad_accounts", "client_ad_accounts"].map(
+        (businessEdge) => {
+          const businessUrl = new URL(
+            `https://graph.facebook.com/${version}/${connection.business_id}/${businessEdge}`,
+          );
+          businessUrl.searchParams.set("fields", "id,name");
+          businessUrl.searchParams.set("limit", "200");
+          return fetchMetaCollection<MetaAccount>(
+            businessUrl,
+            credential,
+            "A Meta recusou o diagnostico das contas do BM.",
+          );
+        },
+      );
+      const businessAccountResults = await Promise.allSettled(businessAccountRequests);
+      const assignedIds = new Set(accounts.map((account) => account.id));
+      const unassignedIds = new Set(
+        businessAccountResults
+          .filter((result) => result.status === "fulfilled")
+          .flatMap((result) => result.value)
+          .filter((account) => !assignedIds.has(account.id))
+          .map((account) => account.id),
+      );
+      unassignedAccounts = unassignedIds.size;
+    }
+
     const { data: currentAccounts, error: currentAccountsError } = await context.supabase
       .from("provider_accounts")
       .select("id,external_id")
@@ -86,7 +116,7 @@ export async function POST(
       if (error) throw error;
     }
 
-    return Response.json({ accounts: accounts.length });
+    return Response.json({ accounts: accounts.length, unassignedAccounts });
   } catch (error) {
     return apiErrorResponse(error);
   }

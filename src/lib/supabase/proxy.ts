@@ -4,8 +4,18 @@ import { getSupabasePublicEnv } from "@/lib/supabase/env";
 
 export async function updateSession(request: NextRequest) {
   const env = getSupabasePublicEnv();
+  const publicPaths = ["/privacy", "/terms", "/data-deletion"];
+  const isPublicRoute =
+    request.nextUrl.pathname.startsWith("/login") ||
+    request.nextUrl.pathname.startsWith("/auth") ||
+    request.nextUrl.pathname.startsWith("/api/webhooks") ||
+    publicPaths.some(
+      (path) =>
+        request.nextUrl.pathname === path ||
+        request.nextUrl.pathname.startsWith(`${path}/`),
+    );
   if (!env.configured) {
-    if (env.demoMode || request.nextUrl.pathname.startsWith("/login")) {
+    if (env.demoMode || isPublicRoute) {
       return NextResponse.next({ request });
     }
     const url = request.nextUrl.clone();
@@ -33,10 +43,6 @@ export async function updateSession(request: NextRequest) {
   });
 
   const { data } = await supabase.auth.getClaims();
-  const isPublicRoute =
-    request.nextUrl.pathname.startsWith("/login") ||
-    request.nextUrl.pathname.startsWith("/auth") ||
-    request.nextUrl.pathname.startsWith("/api/webhooks");
 
   if (!data?.claims && !isPublicRoute) {
     const url = request.nextUrl.clone();

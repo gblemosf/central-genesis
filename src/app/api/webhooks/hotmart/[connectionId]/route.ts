@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
+import { decodeProviderCredentials } from "@/lib/provider-credentials";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { readConnectionSecret } from "@/lib/secret-store";
 
@@ -96,7 +97,8 @@ export async function POST(
 
   let expected: string;
   try {
-    expected = await readConnectionSecret(connectionId);
+    const stored = await readConnectionSecret(connectionId);
+    expected = decodeProviderCredentials("hotmart", stored).hottok ?? "";
   } catch {
     return new Response("Service unavailable", { status: 503 });
   }

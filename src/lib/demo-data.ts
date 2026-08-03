@@ -89,6 +89,7 @@ export const demoConnections: IntegrationConnection[] = [
     status: "connected",
     businessId: "BM configurado",
     accountCount: 2,
+    productCount: 0,
     lastVerifiedAt: "2026-07-27T13:42:00-03:00",
   },
   {
@@ -98,6 +99,7 @@ export const demoConnections: IntegrationConnection[] = [
     status: "attention",
     businessId: "Aguardando configuracao",
     accountCount: 0,
+    productCount: 0,
     lastVerifiedAt: null,
   },
   {
@@ -106,6 +108,7 @@ export const demoConnections: IntegrationConnection[] = [
     provider: "hotmart",
     status: "connected",
     accountCount: 4,
+    productCount: 4,
     lastVerifiedAt: "2026-07-27T12:20:00-03:00",
   },
 ];

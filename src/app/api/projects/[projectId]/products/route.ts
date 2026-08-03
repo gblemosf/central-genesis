@@ -1,5 +1,40 @@
 import { ApiError, apiErrorResponse, requireAdmin } from "@/lib/api-auth";
-import { projectMappingsInputSchema } from "@/lib/validators";
+import {
+  projectMappingsInputSchema,
+  projectProductInputSchema,
+} from "@/lib/validators";
+
+export async function POST(
+  request: Request,
+  route: { params: Promise<{ projectId: string }> },
+) {
+  try {
+    const { projectId } = await route.params;
+    const context = await requireAdmin();
+    const input = projectProductInputSchema.parse(await request.json());
+    const { data: productId, error } = await context.supabase.rpc(
+      "create_project_product",
+      {
+        p_organization_id: context.organizationId,
+        p_project_id: projectId,
+        p_connection_id: input.connectionId,
+        p_external_id: input.externalId,
+        p_name: input.name,
+        p_current_price: input.price,
+        p_currency: input.currency,
+        p_funnel_stage_id: input.funnelStageId,
+      },
+    );
+    if (error?.code === "23505") {
+      throw new ApiError("Ja existe um produto com esse identificador.", 409);
+    }
+    if (error) throw error;
+
+    return Response.json({ data: { id: productId } }, { status: 201 });
+  } catch (error) {
+    return apiErrorResponse(error);
+  }
+}
 
 export async function PUT(
   request: Request,

@@ -12,7 +12,7 @@ export async function POST(
     const adminContext = await requireAdmin();
     const { data: connection, error: connectionError } = await adminContext.supabase
       .from("integration_connections")
-      .select("id,provider")
+      .select("id,provider,status,last_verified_at,metadata")
       .eq("id", connectionId)
       .eq("organization_id", adminContext.organizationId)
       .maybeSingle();
@@ -22,6 +22,36 @@ export async function POST(
     if (!connection) throw new ApiError("Conexao nao encontrada.", 404);
 
     const secret = await readConnectionSecret(connectionId);
+    if (connection.provider === "hubla") {
+      const metadata =
+        connection.metadata &&
+        typeof connection.metadata === "object" &&
+        !Array.isArray(connection.metadata)
+          ? (connection.metadata as Record<string, unknown>)
+          : {};
+      const confirmed = Boolean(metadata.last_webhook_at);
+      const { data: products, error: productsError } = await adminContext.supabase
+        .from("products")
+        .select("id,external_id,name,current_price,currency")
+        .eq("connection_id", connectionId)
+        .eq("is_active", true)
+        .is("archived_at", null)
+        .order("name");
+      if (productsError) throw productsError;
+      return Response.json({
+        ok: true,
+        confirmed,
+        mode: "webhook",
+        lastVerifiedAt: confirmed ? connection.last_verified_at : null,
+        products: (products ?? []).map((product) => ({
+          id: product.id,
+          externalId: product.external_id,
+          name: product.name,
+          price: Number(product.current_price ?? 0),
+          currency: product.currency,
+        })),
+      });
+    }
     const result = await verifyProviderCredential(
       connection.provider as Provider,
       secret,
@@ -38,7 +68,10 @@ export async function POST(
       .eq("id", connectionId);
     if (updateError) throw updateError;
 
-    return Response.json(result, { status: result.ok ? 200 : 422 });
+    return Response.json(
+      { ...result, confirmed: result.ok },
+      { status: result.ok ? 200 : 422 },
+    );
   } catch (error) {
     return apiErrorResponse(error);
   }

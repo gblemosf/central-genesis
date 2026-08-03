@@ -4,11 +4,20 @@ import type {
   DailyMetric,
   IntegrationConnection,
   MetaConnectionOption,
+  ProductDailyMetric,
+  ProjectAnalytics,
   ProjectCatalog,
+  ProjectDailyMetric,
   ProjectSummary,
+  SalesConnectionOption,
 } from "@/lib/domain";
+import { salesProviders } from "@/lib/domain";
 import { demoConnections, demoProjects } from "@/lib/demo-data";
 import { dateInTimezone } from "@/lib/dates";
+import {
+  defaultProjectMetricConfig,
+  normalizeProjectMetricConfig,
+} from "@/lib/project-metrics";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getSupabasePublicEnv } from "@/lib/supabase/env";
 import { titleCase } from "@/lib/utils";
@@ -27,11 +36,43 @@ interface LegacySalesRow {
   projeto: string;
   date: string;
   core: number | null;
+  ob1: number | null;
+  ob2: number | null;
+  ob3: number | null;
+  ob4: number | null;
+  ob5: number | null;
+  up1: number | null;
+  up2: number | null;
+  ds1: number | null;
+  ds2: number | null;
   fat_liquido: number | string | null;
 }
 
 interface ProductMapRow {
   projeto: string;
+}
+
+interface LegacyProductMapRow extends ProductMapRow {
+  product_id: string;
+  campo: string;
+  nome_produto: string | null;
+}
+
+interface SaleEventItemRow {
+  id: string;
+  product_id: string | null;
+  funnel_stage_id: string | null;
+  product_name_snapshot: string | null;
+  stage_type_snapshot: ProductDailyMetric["stageType"] | null;
+  quantity: number | null;
+  net_amount: number | string | null;
+}
+
+interface SaleEventRow {
+  id: string;
+  event_type: string;
+  event_at: string;
+  sales_event_items: SaleEventItemRow[] | null;
 }
 
 export interface AppData<T> {
@@ -108,6 +149,7 @@ function aggregateLegacyData(
 
     return {
       id: projectId,
+      legacy: true,
       name,
       expertName: `Projeto ${name}`,
       status: "active",
@@ -157,6 +199,29 @@ export async function getProjects(): Promise<AppData<ProjectSummary[]>> {
       warning: `Falha ao consultar projetos: ${normalizedError.message}`,
     };
   }
+
+  const [legacyTraffic, legacySales, legacyProducts] = await Promise.all([
+    supabase
+      .from("metricas_trafego")
+      .select("projeto,date,invest,impressions,clicks,pageviews,checkouts")
+      .gte("date", reportingStartDate)
+      .order("date", { ascending: true }),
+    supabase
+      .from("metricas_vendas")
+      .select("projeto,date,core,fat_liquido")
+      .gte("date", reportingStartDate)
+      .order("date", { ascending: true }),
+    supabase.from("mapeamento_produtos").select("projeto"),
+  ]);
+  const legacyAvailable =
+    !legacyTraffic.error && !legacySales.error && !legacyProducts.error;
+  const legacyProjectSummaries = legacyAvailable
+    ? aggregateLegacyData(
+        (legacyTraffic.data ?? []) as LegacyTrafficRow[],
+        (legacySales.data ?? []) as LegacySalesRow[],
+        (legacyProducts.data ?? []) as ProductMapRow[],
+      )
+    : [];
 
   if (normalizedProjects?.length) {
     const projectIds = normalizedProjects.map((project) => project.id);
@@ -214,6 +279,24 @@ export async function getProjects(): Promise<AppData<ProjectSummary[]>> {
           metric.coreSales += numberValue(row.core_sales);
         });
 
+      const legacyProject = legacyProjectSummaries.find(
+        (item) => item.id === project.slug,
+      );
+      for (const row of (legacyTraffic.data ?? []) as LegacyTrafficRow[]) {
+        if (row.projeto !== project.slug) continue;
+        const metric = metricFor(row.date);
+        metric.investment = numberValue(row.invest);
+        metric.impressions = numberValue(row.impressions);
+        metric.clicks = numberValue(row.clicks);
+        metric.pageViews = numberValue(row.pageviews);
+        metric.checkouts = numberValue(row.checkouts);
+      }
+      for (const row of (legacySales.data ?? []) as LegacySalesRow[]) {
+        if (row.projeto !== project.slug) continue;
+        const metric = metricFor(row.date);
+        metric.revenue = numberValue(row.fat_liquido);
+        metric.coreSales = numberValue(row.core);
+      }
       const dailyMetrics = Array.from(dates.values()).sort((a, b) =>
         a.date.localeCompare(b.date),
       );
@@ -237,32 +320,27 @@ export async function getProjects(): Promise<AppData<ProjectSummary[]>> {
         investment: dailyMetrics.reduce((sum, row) => sum + row.investment, 0),
         revenue: dailyMetrics.reduce((sum, row) => sum + row.revenue, 0),
         coreSales: dailyMetrics.reduce((sum, row) => sum + row.coreSales, 0),
-        products: (mappings.data ?? []).filter(
-          (mapping) => mapping.project_id === project.id,
-        ).length,
+        products: Math.max(
+          (mappings.data ?? []).filter((mapping) => mapping.project_id === project.id)
+            .length,
+          legacyProject?.products ?? 0,
+        ),
         lastSyncAt: dailyMetrics.at(-1)?.date ?? null,
         dailyMetrics,
       } as ProjectSummary;
     });
 
-    return { data: projects, source: "live" };
+    const normalizedSlugs = new Set(normalizedProjects.map((project) => project.slug));
+    return {
+      data: [
+        ...projects,
+        ...legacyProjectSummaries.filter((project) => !normalizedSlugs.has(project.id)),
+      ],
+      source: "live",
+    };
   }
 
-  const [traffic, sales, products] = await Promise.all([
-    supabase
-      .from("metricas_trafego")
-      .select("projeto,date,invest,impressions,clicks,pageviews,checkouts")
-      .gte("date", reportingStartDate)
-      .order("date", { ascending: true }),
-    supabase
-      .from("metricas_vendas")
-      .select("projeto,date,core,fat_liquido")
-      .gte("date", reportingStartDate)
-      .order("date", { ascending: true }),
-    supabase.from("mapeamento_produtos").select("projeto"),
-  ]);
-
-  if (traffic.error || sales.error || products.error) {
+  if (!legacyAvailable) {
     return {
       data: [],
       source: "live",
@@ -271,13 +349,7 @@ export async function getProjects(): Promise<AppData<ProjectSummary[]>> {
     };
   }
 
-  const projects = aggregateLegacyData(
-    (traffic.data ?? []) as LegacyTrafficRow[],
-    (sales.data ?? []) as LegacySalesRow[],
-    (products.data ?? []) as ProductMapRow[],
-  );
-
-  return { data: projects, source: "live" };
+  return { data: legacyProjectSummaries, source: "live" };
 }
 
 export async function getProject(projectId: string) {
@@ -296,6 +368,7 @@ export async function getProjectCatalog(projectId: string): Promise<ProjectCatal
     products: [],
     stages: [],
     metaAccounts: [],
+    salesConnections: [],
     linkedMetaAccountId: null,
   };
   if (!supabase) return { ...emptyCatalog, warning: "Supabase nao configurado." };
@@ -312,16 +385,24 @@ export async function getProjectCatalog(projectId: string): Promise<ProjectCatal
     };
   }
 
-  const [products, stages, mappings, metaAccounts, projectAccounts] = await Promise.all([
+  const [
+    products,
+    stages,
+    mappings,
+    metaAccounts,
+    projectAccounts,
+    salesConnections,
+  ] = await Promise.all([
     supabase
       .from("products")
-      .select("id,external_id,name,current_price,currency")
+      .select(
+        "id,connection_id,external_id,name,current_price,currency,source,archived_at",
+      )
       .eq("organization_id", project.organization_id)
-      .eq("is_active", true)
       .order("name"),
     supabase
       .from("funnel_stages")
-      .select("id,name,stage_type,position")
+      .select("id,name,stage_type,position,color,archived_at")
       .eq("project_id", projectId)
       .order("position"),
     supabase
@@ -340,13 +421,21 @@ export async function getProjectCatalog(projectId: string): Promise<ProjectCatal
       .from("project_accounts")
       .select("provider_account_id,project_id")
       .eq("organization_id", project.organization_id),
+    supabase
+      .from("integration_connections")
+      .select("id,name,provider")
+      .eq("organization_id", project.organization_id)
+      .in("provider", [...salesProviders])
+      .is("revoked_at", null)
+      .order("name"),
   ]);
   if (
     products.error ||
     stages.error ||
     mappings.error ||
     metaAccounts.error ||
-    projectAccounts.error
+    projectAccounts.error ||
+    salesConnections.error
   ) {
     return {
       ...emptyCatalog,
@@ -356,6 +445,7 @@ export async function getProjectCatalog(projectId: string): Promise<ProjectCatal
         mappings.error?.message ??
         metaAccounts.error?.message ??
         projectAccounts.error?.message ??
+        salesConnections.error?.message ??
         "Nao foi possivel carregar o catalogo.",
     };
   }
@@ -374,10 +464,13 @@ export async function getProjectCatalog(projectId: string): Promise<ProjectCatal
       const mapping = mappingByProduct.get(product.id);
       return {
         id: product.id,
+        connectionId: product.connection_id,
         externalId: product.external_id,
         name: product.name,
         price: numberValue(product.current_price),
         currency: product.currency,
+        source: product.source,
+        archivedAt: product.archived_at,
         stageId: mapping?.project_id === projectId ? mapping.funnel_stage_id : null,
         mappedProjectId: mapping?.project_id ?? null,
       };
@@ -387,6 +480,8 @@ export async function getProjectCatalog(projectId: string): Promise<ProjectCatal
       name: stage.name,
       type: stage.stage_type,
       position: stage.position,
+      color: stage.color,
+      archivedAt: stage.archived_at,
     })),
     metaAccounts: (metaAccounts.data ?? [])
       .filter((account) => {
@@ -399,6 +494,393 @@ export async function getProjectCatalog(projectId: string): Promise<ProjectCatal
         name: account.name,
       })),
     linkedMetaAccountId: linkedAccount?.provider_account_id ?? null,
+    salesConnections: (salesConnections.data ?? []).map((connection) => ({
+      id: connection.id,
+      name: connection.name,
+      provider: connection.provider,
+      products: [],
+    })),
+  };
+}
+
+export async function getProjectAnalytics(
+  projectId: string,
+  catalog: ProjectCatalog,
+): Promise<ProjectAnalytics> {
+  const supabase = await createSupabaseServerClient();
+  const today = dateInTimezone(new Date());
+  if (!supabase) {
+    const project = demoProjects.find((item) => item.id === projectId);
+    const dailyMetrics = (project?.dailyMetrics ?? []).map((metric) => ({
+      ...metric,
+      productMetrics: [],
+    }));
+    return {
+      config: defaultProjectMetricConfig(today),
+      configSaved: true,
+      dataSources: {
+        csvTrafficRows: 0,
+        csvSalesRows: 0,
+        metaTrafficRows: dailyMetrics.length,
+        webhookSalesEvents: dailyMetrics.filter(
+          (metric) => metric.revenue !== 0 || metric.coreSales !== 0,
+        ).length,
+      },
+      dailyMetrics,
+    };
+  }
+
+  const { data: project, error: projectError } = await supabase
+    .from("projects")
+    .select("id,organization_id,slug,settings,reporting_timezone")
+    .eq("id", projectId)
+    .maybeSingle();
+  if (projectError || !project) {
+    return {
+      config: defaultProjectMetricConfig(today),
+      configSaved: false,
+      dataSources: {
+        csvTrafficRows: 0,
+        csvSalesRows: 0,
+        metaTrafficRows: 0,
+        webhookSalesEvents: 0,
+      },
+      dailyMetrics: [],
+      warning: projectError?.message ?? "Projeto nao encontrado.",
+    };
+  }
+
+  const settings =
+    project.settings !== null &&
+    typeof project.settings === "object" &&
+    !Array.isArray(project.settings)
+      ? (project.settings as Record<string, unknown>)
+      : {};
+  const projectToday = dateInTimezone(new Date(), project.reporting_timezone);
+  const savedMetricSettings =
+    settings.metrics !== null &&
+    typeof settings.metrics === "object" &&
+    !Array.isArray(settings.metrics)
+      ? (settings.metrics as Record<string, unknown>)
+      : {};
+  const configSaved =
+    typeof savedMetricSettings.trafficFeePercent === "number" &&
+    typeof savedMetricSettings.companySharePercent === "number" &&
+    typeof savedMetricSettings.baseCpa === "number" &&
+    typeof savedMetricSettings.idealCpa === "number";
+  const config = normalizeProjectMetricConfig(settings.metrics, projectToday);
+  const startBuffer = new Date(`${config.periodStart}T00:00:00Z`);
+  startBuffer.setUTCDate(startBuffer.getUTCDate() - 1);
+  const endBuffer = new Date(`${config.periodEnd}T00:00:00Z`);
+  endBuffer.setUTCDate(endBuffer.getUTCDate() + 2);
+
+  const salesRequest = async () => {
+    const data: SaleEventRow[] = [];
+    const pageSize = 1000;
+
+    for (let page = 0; page < 100; page += 1) {
+      const from = page * pageSize;
+      const response = await supabase
+        .from("sales_events")
+        .select(
+          "id,event_type,event_at,sales_event_items(id,product_id,funnel_stage_id,product_name_snapshot,stage_type_snapshot,quantity,net_amount)",
+        )
+        .eq("project_id", projectId)
+        .in("event_type", [
+          "PURCHASE_APPROVED",
+          "PURCHASE_COMPLETED",
+          "PURCHASE_REFUNDED",
+        ])
+        .gte("event_at", startBuffer.toISOString())
+        .lt("event_at", endBuffer.toISOString())
+        .order("event_at")
+        .order("id")
+        .range(from, from + pageSize - 1);
+      if (response.error) return { data, error: response.error };
+
+      const pageRows = (response.data ?? []) as unknown as SaleEventRow[];
+      data.push(...pageRows);
+      if (pageRows.length < pageSize) return { data, error: null };
+    }
+
+    return {
+      data,
+      error: { message: "O periodo excedeu o limite de 100 mil vendas." },
+    };
+  };
+
+  const [
+    metrics,
+    metaTrafficCount,
+    sales,
+    webhookSalesCount,
+    legacyTraffic,
+    legacyTrafficCount,
+    legacySales,
+    legacySalesCount,
+    legacyProducts,
+  ] = await Promise.all([
+    supabase
+      .from("project_daily_metrics")
+      .select(
+        "metric_date,investment,revenue,impressions,clicks,page_views,checkouts,core_sales",
+      )
+      .eq("project_id", projectId)
+      .gte("metric_date", config.periodStart)
+      .lte("metric_date", config.periodEnd)
+      .order("metric_date"),
+    supabase
+      .from("traffic_metrics_daily")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", project.organization_id)
+      .eq("project_id", projectId),
+    salesRequest(),
+    supabase
+      .from("sales_events")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", project.organization_id)
+      .eq("project_id", projectId)
+      .in("event_type", [
+        "PURCHASE_APPROVED",
+        "PURCHASE_COMPLETED",
+        "PURCHASE_REFUNDED",
+      ]),
+    supabase
+      .from("metricas_trafego")
+      .select("projeto,date,invest,impressions,clicks,pageviews,checkouts")
+      .eq("projeto", project.slug)
+      .gte("date", config.periodStart)
+      .lte("date", config.periodEnd)
+      .order("date"),
+    supabase
+      .from("metricas_trafego")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", project.organization_id)
+      .eq("projeto", project.slug),
+    supabase
+      .from("metricas_vendas")
+      .select("projeto,date,core,ob1,ob2,ob3,ob4,ob5,up1,up2,ds1,ds2,fat_liquido")
+      .eq("projeto", project.slug)
+      .gte("date", config.periodStart)
+      .lte("date", config.periodEnd)
+      .order("date"),
+    supabase
+      .from("metricas_vendas")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", project.organization_id)
+      .eq("projeto", project.slug),
+    supabase
+      .from("mapeamento_produtos")
+      .select("product_id,projeto,campo,nome_produto")
+      .eq("projeto", project.slug),
+  ]);
+
+  const products = new Map(catalog.products.map((product) => [product.id, product]));
+  const historicalProductIds = Array.from(
+    new Set(
+      sales.data.flatMap((event) =>
+        (event.sales_event_items ?? [])
+          .map((item) => item.product_id)
+          .filter((productId): productId is string => Boolean(productId)),
+      ),
+    ),
+  ).filter((productId) => !products.has(productId));
+  let historicalProductsError: { message: string } | null = null;
+  for (let index = 0; index < historicalProductIds.length; index += 500) {
+    const productIds = historicalProductIds.slice(index, index + 500);
+    const response = await supabase
+      .from("products")
+      .select("id,name,current_price,currency")
+      .in("id", productIds);
+    if (response.error) {
+      historicalProductsError = response.error;
+      break;
+    }
+    for (const product of response.data ?? []) {
+      products.set(product.id, {
+        id: product.id,
+        connectionId: null,
+        externalId: product.id,
+        name: product.name,
+        price: numberValue(product.current_price),
+        currency: product.currency,
+        source: "provider",
+        archivedAt: null,
+        stageId: null,
+        mappedProjectId: projectId,
+      });
+    }
+  }
+
+  const rows = new Map<string, ProjectDailyMetric>();
+  const metricFor = (date: string) => {
+    const metric = rows.get(date) ?? {
+      date,
+      investment: 0,
+      revenue: 0,
+      impressions: 0,
+      clicks: 0,
+      pageViews: 0,
+      checkouts: 0,
+      coreSales: 0,
+      productMetrics: [],
+    };
+    rows.set(date, metric);
+    return metric;
+  };
+
+  for (const row of metrics.data ?? []) {
+    const metric = metricFor(row.metric_date);
+    metric.investment = numberValue(row.investment);
+    metric.revenue = numberValue(row.revenue);
+    metric.impressions = numberValue(row.impressions);
+    metric.clicks = numberValue(row.clicks);
+    metric.pageViews = numberValue(row.page_views);
+    metric.checkouts = numberValue(row.checkouts);
+    metric.coreSales = numberValue(row.core_sales);
+  }
+
+  if (!legacyTraffic.error) {
+    for (const row of (legacyTraffic.data ?? []) as LegacyTrafficRow[]) {
+      const metric = metricFor(row.date);
+      metric.investment = numberValue(row.invest);
+      metric.impressions = numberValue(row.impressions);
+      metric.clicks = numberValue(row.clicks);
+      metric.pageViews = numberValue(row.pageviews);
+      metric.checkouts = numberValue(row.checkouts);
+    }
+  }
+  if (!legacySales.error) {
+    for (const row of (legacySales.data ?? []) as LegacySalesRow[]) {
+      const metric = metricFor(row.date);
+      metric.revenue = numberValue(row.fat_liquido);
+      metric.coreSales = numberValue(row.core);
+    }
+  }
+
+  const stages = new Map(catalog.stages.map((stage) => [stage.id, stage]));
+  for (const event of sales.data) {
+    const eventDate = dateInTimezone(new Date(event.event_at), project.reporting_timezone);
+    if (eventDate < config.periodStart || eventDate > config.periodEnd) continue;
+    const metric = metricFor(eventDate);
+
+    for (const item of event.sales_event_items ?? []) {
+      const stage = item.funnel_stage_id ? stages.get(item.funnel_stage_id) : null;
+      const product = item.product_id ? products.get(item.product_id) : null;
+      const stageType = item.stage_type_snapshot ?? stage?.type;
+      const productName = item.product_name_snapshot ?? product?.name;
+      const productId = item.product_id ?? `historical-${item.id}`;
+      const stageId = item.funnel_stage_id ?? `historical-${item.id}`;
+      if (!stageType || !productName) continue;
+      const current = metric.productMetrics.find(
+        (productMetric) =>
+          productMetric.productId === productId && productMetric.stageId === stageId,
+      ) ?? {
+        productId,
+        stageId,
+        productName,
+        stageType,
+        quantity: 0,
+        revenue: 0,
+      } satisfies ProductDailyMetric;
+      const sign = event.event_type === "PURCHASE_REFUNDED" ? -1 : 1;
+      current.quantity += sign * numberValue(item.quantity);
+      current.revenue += numberValue(item.net_amount);
+      if (
+        !metric.productMetrics.some(
+          (itemMetric) =>
+            itemMetric.productId === productId && itemMetric.stageId === stageId,
+        )
+      ) {
+        metric.productMetrics.push(current);
+      }
+    }
+  }
+
+  if (!legacySales.error && !legacyProducts.error) {
+    const mappings = new Map(
+      ((legacyProducts.data ?? []) as LegacyProductMapRow[]).map((mapping) => [
+        mapping.campo.toLowerCase(),
+        mapping,
+      ]),
+    );
+    const legacyFields = [
+      "core",
+      "ob1",
+      "ob2",
+      "ob3",
+      "ob4",
+      "ob5",
+      "up1",
+      "up2",
+      "ds1",
+      "ds2",
+    ] as const;
+
+    for (const row of (legacySales.data ?? []) as LegacySalesRow[]) {
+      const metric = metricFor(row.date);
+      if (metric.productMetrics.length) continue;
+      for (const field of legacyFields) {
+        const quantity = numberValue(row[field]);
+        if (!quantity) continue;
+        const mapping = mappings.get(field);
+        const stageType: ProductDailyMetric["stageType"] = field === "core"
+          ? "core"
+          : field.startsWith("ob")
+            ? "order_bump"
+            : field.startsWith("up")
+              ? "upsell"
+              : "downsell";
+        const stageIndex = field === "core" ? 0 : Math.max(0, Number(field.slice(2)) - 1);
+        const catalogStage = [...catalog.stages]
+          .filter((stage) => stage.type === stageType && !stage.archivedAt)
+          .sort((a, b) => a.position - b.position)[stageIndex];
+        const catalogProduct = catalog.products.find(
+          (product) =>
+            product.mappedProjectId === projectId && product.stageId === catalogStage?.id,
+        );
+        metric.productMetrics.push({
+          productId: catalogProduct?.id ?? mapping?.product_id ?? `legacy-${field}`,
+          stageId: catalogStage?.id ?? `legacy-stage-${field}`,
+          productName:
+            catalogProduct?.name ?? mapping?.nome_produto ?? field.toUpperCase(),
+          stageType,
+          quantity,
+          revenue: 0,
+        });
+      }
+    }
+  }
+
+  const cursor = new Date(`${config.periodStart}T00:00:00Z`);
+  const lastDate = new Date(`${config.periodEnd}T00:00:00Z`);
+  while (cursor <= lastDate) {
+    metricFor(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+
+  const warning =
+    metrics.error?.message ??
+    metaTrafficCount.error?.message ??
+    sales.error?.message ??
+    webhookSalesCount.error?.message ??
+    legacyTraffic.error?.message ??
+    legacyTrafficCount.error?.message ??
+    legacySales.error?.message ??
+    legacySalesCount.error?.message ??
+    legacyProducts.error?.message ??
+    historicalProductsError?.message;
+  return {
+    config,
+    configSaved,
+    dataSources: {
+      csvTrafficRows: legacyTrafficCount.count ?? 0,
+      csvSalesRows: legacySalesCount.count ?? 0,
+      metaTrafficRows: metaTrafficCount.count ?? 0,
+      webhookSalesEvents: webhookSalesCount.count ?? 0,
+    },
+    dailyMetrics: Array.from(rows.values()).sort((a, b) => a.date.localeCompare(b.date)),
+    ...(warning ? { warning } : {}),
   };
 }
 
@@ -438,6 +920,52 @@ export async function getMetaConnectionsForOnboarding(): Promise<MetaConnectionO
   }));
 }
 
+export async function getSalesConnectionsForOnboarding(): Promise<SalesConnectionOption[]> {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return [];
+
+  const { data: connections, error: connectionError } = await supabase
+    .from("integration_connections")
+    .select("id,name,provider")
+    .in("provider", [...salesProviders])
+    .eq("status", "connected")
+    .is("revoked_at", null)
+    .order("created_at");
+  if (connectionError || !connections?.length) return [];
+
+  const connectionIds = connections.map((connection) => connection.id);
+  const [products, mappings] = await Promise.all([
+    supabase
+      .from("products")
+      .select("id,connection_id,external_id,name,current_price,currency")
+      .in("connection_id", connectionIds)
+      .eq("is_active", true)
+      .is("archived_at", null)
+      .order("name"),
+    supabase.from("product_mappings").select("product_id").is("effective_to", null),
+  ]);
+  if (products.error || mappings.error) return [];
+  const mappedProductIds = new Set((mappings.data ?? []).map((mapping) => mapping.product_id));
+
+  return connections.map((connection) => ({
+    id: connection.id,
+    name: connection.name,
+    provider: connection.provider,
+    products: (products.data ?? [])
+      .filter(
+        (product) =>
+          product.connection_id === connection.id && !mappedProductIds.has(product.id),
+      )
+      .map((product) => ({
+        id: product.id,
+        externalId: product.external_id,
+        name: product.name,
+        price: numberValue(product.current_price),
+        currency: product.currency,
+      })),
+  }));
+}
+
 export async function getConnections(): Promise<
   AppData<IntegrationConnection[]>
 > {
@@ -451,7 +979,7 @@ export async function getConnections(): Promise<
   const { data, error } = await supabase
     .from("integration_connections")
     .select(
-      "id,name,provider,status,business_id,last_verified_at,last_error,provider_accounts(count)",
+      "id,name,provider,status,business_id,app_id,system_user_id,last_verified_at,last_error,provider_accounts(count),products(count)",
     )
     .order("created_at", { ascending: true });
 
@@ -463,8 +991,13 @@ export async function getConnections(): Promise<
     provider: row.provider as IntegrationConnection["provider"],
     status: row.status as IntegrationConnection["status"],
     businessId: row.business_id ? String(row.business_id) : undefined,
+    appId: row.app_id ? String(row.app_id) : undefined,
+    systemUserId: row.system_user_id ? String(row.system_user_id) : undefined,
     accountCount: Array.isArray(row.provider_accounts)
       ? Number(row.provider_accounts[0]?.count ?? 0)
+      : 0,
+    productCount: Array.isArray(row.products)
+      ? Number(row.products[0]?.count ?? 0)
       : 0,
     lastVerifiedAt: row.last_verified_at
       ? String(row.last_verified_at)

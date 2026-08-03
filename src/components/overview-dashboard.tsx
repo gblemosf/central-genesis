@@ -388,7 +388,7 @@ export function OverviewDashboard({
                   {statusLabel[connection.status]}
                 </span>
               </div>
-            ))}
+              ))}
           </div>
           <Link
             href="/integrations"
