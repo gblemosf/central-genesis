@@ -59,9 +59,17 @@ export function ProjectsList({
     setDeleting(true);
     setDeleteError("");
 
-    const response = await fetch(`/api/projects/${pendingProject.id}`, {
-      method: "DELETE",
-    }).catch(() => null);
+    const response = await fetch(
+      `/api/projects/${encodeURIComponent(pendingProject.id)}`,
+      {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          legacy: Boolean(pendingProject.legacy),
+          ...(pendingProject.legacy ? { name: pendingProject.name } : {}),
+        }),
+      },
+    ).catch(() => null);
     const body = (await response?.json().catch(() => null)) as
       | { error?: string }
       | null;
@@ -141,7 +149,7 @@ export function ProjectsList({
                       <p className="text-xs text-[var(--muted)]">{project.expertName}</p>
                     </div>
                   </div>
-                  {canManage && !project.legacy && (
+                  {canManage && (
                     <div className="relative">
                       <button
                         type="button"

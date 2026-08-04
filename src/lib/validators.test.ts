@@ -6,6 +6,7 @@ import {
   credentialInputSchema,
   funnelStageInputSchema,
   funnelStageOrderInputSchema,
+  projectDeleteInputSchema,
   projectInputSchema,
   projectMetricConfigInputSchema,
   projectProductInputSchema,
@@ -98,6 +99,22 @@ describe("projectUpdateInputSchema", () => {
         status: "active",
       }).success,
     ).toBe(false);
+  });
+});
+
+describe("projectDeleteInputSchema", () => {
+  it("mantem compatibilidade com exclusao normal sem corpo", () => {
+    expect(projectDeleteInputSchema.parse({})).toEqual({ legacy: false });
+  });
+
+  it("exige o nome ao excluir um projeto legado", () => {
+    expect(
+      projectDeleteInputSchema.safeParse({ legacy: true, name: "Colorista" })
+        .success,
+    ).toBe(true);
+    expect(projectDeleteInputSchema.safeParse({ legacy: true }).success).toBe(
+      false,
+    );
   });
 });
 

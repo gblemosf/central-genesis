@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(104);
+select plan(109);
 
 insert into auth.users (
   id, instance_id, aud, role, email, encrypted_password,
@@ -938,6 +938,67 @@ select ok(
     where external_id = 'act_deleted_project' and is_active
   ),
   'soft deletion frees the Meta account for another project'
+);
+insert into public.metricas_vendas (
+  organization_id, projeto, date, core, fat_liquido
+)
+select id, 'projeto-legado-excluido', '2026-08-03', 1, 90
+from public.organizations where name = 'Genesis';
+set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000003';
+select throws_ok(
+  $$select public.soft_delete_legacy_project(
+    (select id from public.organizations where name = 'Genesis'),
+    'projeto-legado-excluido',
+    'Projeto Legado Excluido'
+  )$$,
+  '42501',
+  'admin permission required',
+  'viewer cannot soft delete a legacy project'
+);
+set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000001';
+select lives_ok(
+  $$select public.soft_delete_legacy_project(
+    (select id from public.organizations where name = 'Genesis'),
+    'projeto-legado-excluido',
+    'Projeto Legado Excluido'
+  )$$,
+  'owner can soft delete a legacy project'
+);
+select ok(
+  exists(
+    select 1 from public.projects
+    where slug = 'projeto-legado-excluido'
+      and deleted_at is not null
+      and settings @> '{"legacy_tombstone":true}'::jsonb
+  )
+  and exists(
+    select 1 from public.metricas_vendas
+    where projeto = 'projeto-legado-excluido' and fat_liquido = 90
+  ),
+  'legacy soft deletion preserves history behind a tombstone'
+);
+select throws_ok(
+  $$insert into public.metricas_vendas (
+      organization_id, projeto, date, core, fat_liquido
+    )
+    select id, 'projeto-legado-excluido', '2026-08-04', 1, 90
+    from public.organizations where name = 'Genesis'$$,
+  'P0002',
+  'project is deleted or unavailable',
+  'legacy soft deletion rejects new metric writes'
+);
+select ok(
+  not pg_catalog.has_function_privilege(
+    'anon',
+    'public.soft_delete_legacy_project(uuid,text,text)',
+    'EXECUTE'
+  )
+  and not pg_catalog.has_function_privilege(
+    'service_role',
+    'public.soft_delete_legacy_project(uuid,text,text)',
+    'EXECUTE'
+  ),
+  'only authenticated users can reach legacy project deletion authorization'
 );
 select throws_ok(
   $$select public.create_project_funnel_stage(

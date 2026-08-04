@@ -214,12 +214,14 @@ export async function getProjects(): Promise<AppData<ProjectSummary[]>> {
     supabase.from("mapeamento_produtos").select("projeto"),
   ]);
   const legacyAvailable =
-    !legacyTraffic.error && !legacySales.error && !legacyProducts.error;
+    !legacyTraffic.error && !legacySales.error;
   const legacyProjectSummaries = legacyAvailable
     ? aggregateLegacyData(
         (legacyTraffic.data ?? []) as LegacyTrafficRow[],
         (legacySales.data ?? []) as LegacySalesRow[],
-        (legacyProducts.data ?? []) as ProductMapRow[],
+        legacyProducts.error
+          ? []
+          : ((legacyProducts.data ?? []) as ProductMapRow[]),
       )
     : [];
   const activeNormalizedProjects = (normalizedProjects ?? []).filter(

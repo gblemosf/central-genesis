@@ -137,6 +137,16 @@ export const projectUpdateInputSchema = z.object({
   status: z.enum(["draft", "active", "paused", "archived"]),
 });
 
+export const projectDeleteInputSchema = z.union([
+  z.object({ legacy: z.literal(false).default(false) }).strict(),
+  z
+    .object({
+      legacy: z.literal(true),
+      name: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+]);
+
 export const funnelStageInputSchema = z.object({
   name: z.string().trim().min(2).max(120),
   type: z.enum(funnelStageTypes),

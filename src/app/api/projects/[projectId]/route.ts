@@ -1,6 +1,9 @@
 import { revalidatePath } from "next/cache";
 import { ApiError, apiErrorResponse, requireAdmin } from "@/lib/api-auth";
-import { projectUpdateInputSchema } from "@/lib/validators";
+import {
+  projectDeleteInputSchema,
+  projectUpdateInputSchema,
+} from "@/lib/validators";
 
 export async function PATCH(
   request: Request,
@@ -35,16 +38,24 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   route: { params: Promise<{ projectId: string }> },
 ) {
   try {
     const { projectId } = await route.params;
     const context = await requireAdmin();
-    const { data, error } = await context.supabase.rpc("soft_delete_project", {
-      p_organization_id: context.organizationId,
-      p_project_id: projectId,
-    });
+    const body = await request.text();
+    const input = projectDeleteInputSchema.parse(body ? JSON.parse(body) : {});
+    const { data, error } = input.legacy
+      ? await context.supabase.rpc("soft_delete_legacy_project", {
+          p_organization_id: context.organizationId,
+          p_slug: projectId,
+          p_name: input.name,
+        })
+      : await context.supabase.rpc("soft_delete_project", {
+          p_organization_id: context.organizationId,
+          p_project_id: projectId,
+        });
     if (error?.code === "P0002") throw new ApiError("Projeto nao encontrado.", 404);
     if (error) throw error;
     const project = data as { id: string; name: string } | null;

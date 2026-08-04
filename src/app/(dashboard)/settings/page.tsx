@@ -33,6 +33,7 @@ const migrations = [
   ["20260803171244", "Protecao dos eventos e reembolsos Hubla"],
   ["20260803201504", "Exclusao segura de projetos"],
   ["20260803210305", "Protecao do historico de projetos excluidos"],
+  ["20260804075737", "Exclusao segura dos projetos legados"],
 ] as const;
 
 function getProjectRef(url: string) {
