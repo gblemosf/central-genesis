@@ -48,6 +48,21 @@ export async function requireAdmin(): Promise<AdminContext> {
   };
 }
 
+export async function requireActiveProject(
+  context: AdminContext,
+  projectId: string,
+) {
+  const { data, error } = await context.supabase
+    .from("projects")
+    .select("id")
+    .eq("id", projectId)
+    .eq("organization_id", context.organizationId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error) throw new ApiError("Nao foi possivel consultar o projeto.", 503);
+  if (!data) throw new ApiError("Projeto nao encontrado.", 404);
+}
+
 export function apiErrorResponse(error: unknown) {
   if (error instanceof ApiError) {
     return Response.json({ error: error.message }, { status: error.status });

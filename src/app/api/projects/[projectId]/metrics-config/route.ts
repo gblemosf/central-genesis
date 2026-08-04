@@ -14,6 +14,7 @@ export async function PUT(
       .select("id,settings")
       .eq("id", projectId)
       .eq("organization_id", context.organizationId)
+      .is("deleted_at", null)
       .maybeSingle();
     if (projectError) throw new ApiError("Nao foi possivel consultar o projeto.", 503);
     if (!project) throw new ApiError("Projeto nao encontrado.", 404);
@@ -45,12 +46,16 @@ export async function PUT(
       !Array.isArray(project.settings)
         ? (project.settings as Record<string, unknown>)
         : {};
-    const { error: updateError } = await context.supabase
+    const { data: updatedProject, error: updateError } = await context.supabase
       .from("projects")
       .update({ settings: { ...currentSettings, metrics: input } })
       .eq("id", projectId)
-      .eq("organization_id", context.organizationId);
+      .eq("organization_id", context.organizationId)
+      .is("deleted_at", null)
+      .select("id")
+      .maybeSingle();
     if (updateError) throw updateError;
+    if (!updatedProject) throw new ApiError("Projeto nao encontrado.", 404);
 
     return Response.json({ data: input });
   } catch (error) {

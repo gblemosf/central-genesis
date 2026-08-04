@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(90);
+select plan(104);
 
 insert into auth.users (
   id, instance_id, aud, role, email, encrypted_password,
@@ -95,6 +95,8 @@ select is(
   'super-secret-hottok',
   'credential is readable through the service-only wrapper'
 );
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000001';
 select lives_ok(
   $$select public.replace_meta_metrics(
     (select id from public.organizations where name = 'Genesis'),
@@ -163,6 +165,7 @@ select is(
   'succeeded',
   'Meta sync run is recorded'
 );
+reset role;
 select lives_ok(
   $$select * from public.ingest_hotmart_sale(
     (select id from public.integration_connections where name = 'Hotmart Principal'),
@@ -743,7 +746,7 @@ select throws_ok(
     '2026-08-01'
   )$$,
   '42501',
-  'administrator permission required',
+  'admin permission required',
   'another organization cannot import metrics into a Genesis project'
 );
 select lives_ok(
@@ -824,7 +827,216 @@ select throws_ok(
   'connection has historical data',
   'connection with sync history cannot be deleted'
 );
+select lives_ok(
+  $$select public.create_project_with_defaults(
+    (select id from public.organizations where name = 'Genesis'),
+    'Projeto Excluido', 'projeto-excluido', 'Expert Excluido', null,
+    'hotmart', 100000, 60, null, null
+  )$$,
+  'owner creates a project that can be soft deleted'
+);
+insert into public.project_costs (
+  organization_id, project_id, cost_date, name, amount
+)
+select organization_id, id, '2026-08-03', 'Custo preservado', 25
+from public.projects where slug = 'projeto-excluido';
+insert into public.metricas_trafego (
+  organization_id, projeto, date, invest
+)
+select organization_id, slug, '2026-08-03', 25
+from public.projects where slug = 'projeto-excluido';
 reset role;
+insert into public.integration_connections (
+  organization_id, name, provider, status
+)
+select id, 'Meta Exclusao', 'meta', 'connected'
+from public.organizations where name = 'Genesis';
+insert into public.integration_connections (
+  organization_id, name, provider, status
+)
+select id, 'Hotmart Exclusao', 'hotmart', 'connected'
+from public.organizations where name = 'Genesis';
+insert into public.provider_accounts (
+  organization_id, connection_id, external_id, name, account_type,
+  currency, timezone, is_active
+)
+select organization.id, connection.id, 'act_deleted_project',
+       'Conta do projeto excluido', 'meta_ad_account',
+       'BRL', 'America/Sao_Paulo', true
+from public.organizations organization
+join public.integration_connections connection
+  on connection.organization_id = organization.id
+where organization.name = 'Genesis'
+  and connection.name = 'Meta Exclusao';
+insert into public.sales_events (
+  organization_id, project_id, connection_id, external_event_id,
+  external_transaction_id, event_type, event_at, gross_amount,
+  net_amount, currency, payload, processed_at
+)
+select organization.id, project.id, connection.id,
+       'deleted-project-retry', 'deleted-project-transaction',
+       'PURCHASE_APPROVED', '2026-08-03T12:00:00Z', 100, 90, 'BRL',
+       '{"product_external_id":"deleted-product"}'::jsonb, now()
+from public.organizations organization
+join public.projects project on project.organization_id = organization.id
+join public.integration_connections connection
+  on connection.organization_id = organization.id
+where organization.name = 'Genesis'
+  and project.slug = 'projeto-excluido'
+  and connection.name = 'Hotmart Exclusao';
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000001';
+select public.set_project_meta_account(
+  (select id from public.organizations where name = 'Genesis'),
+  (select id from public.projects where slug = 'projeto-excluido'),
+  (select id from public.provider_accounts where external_id = 'act_deleted_project')
+);
+set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000003';
+select results_eq(
+  $$update public.projects
+    set deleted_at = now(), status = 'archived'
+    where slug = 'projeto-excluido'
+    returning id$$,
+  $$select null::uuid where false$$,
+  'viewer cannot soft delete a project'
+);
+select throws_ok(
+  $$select public.soft_delete_project(
+    (select id from public.organizations where name = 'Genesis'),
+    (select id from public.projects where slug = 'projeto-excluido')
+  )$$,
+  '42501',
+  'admin permission required',
+  'viewer cannot call the project deletion RPC'
+);
+set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000001';
+select lives_ok(
+  $$select public.soft_delete_project(
+    (select id from public.organizations where name = 'Genesis'),
+    (select id from public.projects where slug = 'projeto-excluido')
+  )$$,
+  'owner can soft delete a project'
+);
+select ok(
+  (select deleted_at is not null and status = 'archived'
+   from public.projects where slug = 'projeto-excluido')
+  and exists(
+    select 1 from public.funnel_stages stage
+    join public.projects project on project.id = stage.project_id
+    where project.slug = 'projeto-excluido'
+  ),
+  'soft deletion preserves the project and its linked history'
+);
+select ok(
+  not exists(
+    select 1 from public.project_accounts link
+    join public.projects project on project.id = link.project_id
+    where project.slug = 'projeto-excluido'
+  )
+  and exists(
+    select 1 from public.provider_accounts
+    where external_id = 'act_deleted_project' and is_active
+  ),
+  'soft deletion frees the Meta account for another project'
+);
+select throws_ok(
+  $$select public.create_project_funnel_stage(
+    (select id from public.organizations where name = 'Genesis'),
+    (select id from public.projects where slug = 'projeto-excluido'),
+    'Etapa indevida', 'core', null
+  )$$,
+  'P0002',
+  'project not found',
+  'project RPCs reject a soft deleted project'
+);
+select throws_ok(
+  $$select public.import_project_csv_metrics(
+    (select id from public.organizations where name = 'Genesis'),
+    (select id from public.projects where slug = 'projeto-excluido'),
+    '[{"date":"2026-08-03","invest":10}]'::jsonb,
+    '[]'::jsonb,
+    '2026-08-03',
+    '2026-08-03'
+  )$$,
+  'P0002',
+  'project not found',
+  'CSV import rejects a soft deleted project'
+);
+reset role;
+select results_eq(
+  $$select duplicate, mapped from public.ingest_hotmart_sale(
+    (select id from public.integration_connections where name = 'Hotmart Exclusao'),
+    'deleted-project-retry', 'deleted-project-transaction',
+    'PURCHASE_APPROVED', '2026-08-03T12:00:00Z',
+    'deleted-product', 'Produto excluido', 100, 90, 'BRL',
+    '{"product_external_id":"deleted-product"}'::jsonb
+  )$$,
+  $$values (true, true)$$,
+  'Hotmart retries remain idempotent after project deletion'
+);
+select throws_ok(
+  $$update public.project_costs cost
+    set project_id = (
+      select project.id
+      from public.projects project
+      join public.organizations organization
+        on organization.id = project.organization_id
+      where project.slug = 'projeto-teste' and organization.name = 'Genesis'
+    )
+    where cost.project_id = (
+      select id from public.projects where slug = 'projeto-excluido'
+    )$$,
+  'P0002',
+  'project is deleted or unavailable',
+  'deleted project history cannot be moved to an active project'
+);
+select throws_ok(
+  $$update public.metricas_trafego metric
+    set projeto = 'projeto-reaparecido'
+    where metric.organization_id = (
+      select organization_id from public.projects where slug = 'projeto-excluido'
+    )
+      and metric.projeto = 'projeto-excluido'$$,
+  'P0002',
+  'project is deleted or unavailable',
+  'deleted legacy metrics cannot be renamed into a visible project'
+);
+select throws_ok(
+  $$insert into public.metricas_trafego (
+      organization_id, projeto, date, invest
+    )
+    select organization_id, slug, '2026-08-03', 10
+    from public.projects where slug = 'projeto-excluido'$$,
+  'P0002',
+  'project is deleted or unavailable',
+  'legacy metric writes reject a deleted project slug'
+);
+select throws_ok(
+  $$insert into public.sales_events (
+      organization_id, project_id, connection_id, external_event_id,
+      external_transaction_id, event_type, event_at, gross_amount,
+      net_amount, currency
+    )
+    select project.organization_id, project.id, connection.id,
+           'deleted-project-event', 'deleted-project-transaction',
+           'PURCHASE_COMPLETED', now(), 10, 10, 'BRL'
+    from public.projects project
+    join public.integration_connections connection
+      on connection.organization_id = project.organization_id
+    where project.slug = 'projeto-excluido'
+      and connection.name = 'Hotmart Principal'$$,
+  'P0002',
+  'project is deleted or unavailable',
+  'webhook event writes reject a soft deleted project'
+);
+select ok(
+  not pg_catalog.has_function_privilege(
+    'service_role',
+    'public.replace_meta_metrics_unchecked(uuid,uuid,date,date,uuid[],jsonb)',
+    'EXECUTE'
+  ),
+  'service role cannot bypass the guarded Meta sync wrapper'
+);
 
 select * from finish();
 rollback;

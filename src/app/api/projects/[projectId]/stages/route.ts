@@ -1,4 +1,8 @@
-import { apiErrorResponse, requireAdmin } from "@/lib/api-auth";
+import {
+  apiErrorResponse,
+  requireActiveProject,
+  requireAdmin,
+} from "@/lib/api-auth";
 import {
   funnelStageInputSchema,
   funnelStageOrderInputSchema,
@@ -11,6 +15,7 @@ export async function POST(
   try {
     const { projectId } = await route.params;
     const context = await requireAdmin();
+    await requireActiveProject(context, projectId);
     const input = funnelStageInputSchema.parse(await request.json());
     const { data: stageId, error } = await context.supabase.rpc(
       "create_project_funnel_stage",
@@ -36,6 +41,7 @@ export async function PUT(
   try {
     const { projectId } = await route.params;
     const context = await requireAdmin();
+    await requireActiveProject(context, projectId);
     const input = funnelStageOrderInputSchema.parse(await request.json());
     const { error } = await context.supabase.rpc("reorder_project_funnel_stages", {
       p_organization_id: context.organizationId,

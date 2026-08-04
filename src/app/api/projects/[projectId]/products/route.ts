@@ -1,4 +1,9 @@
-import { ApiError, apiErrorResponse, requireAdmin } from "@/lib/api-auth";
+import {
+  ApiError,
+  apiErrorResponse,
+  requireActiveProject,
+  requireAdmin,
+} from "@/lib/api-auth";
 import {
   projectMappingsInputSchema,
   projectProductInputSchema,
@@ -11,6 +16,7 @@ export async function POST(
   try {
     const { projectId } = await route.params;
     const context = await requireAdmin();
+    await requireActiveProject(context, projectId);
     const input = projectProductInputSchema.parse(await request.json());
     const { data: productId, error } = await context.supabase.rpc(
       "create_project_product",
@@ -49,6 +55,7 @@ export async function PUT(
       .select("id")
       .eq("id", projectId)
       .eq("organization_id", context.organizationId)
+      .is("deleted_at", null)
       .maybeSingle();
     if (projectError) throw new ApiError("Nao foi possivel consultar o projeto.", 503);
     if (!project) throw new ApiError("Projeto nao encontrado.", 404);

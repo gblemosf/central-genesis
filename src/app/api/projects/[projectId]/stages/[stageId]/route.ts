@@ -1,4 +1,9 @@
-import { ApiError, apiErrorResponse, requireAdmin } from "@/lib/api-auth";
+import {
+  ApiError,
+  apiErrorResponse,
+  requireActiveProject,
+  requireAdmin,
+} from "@/lib/api-auth";
 import { funnelStageUpdateInputSchema } from "@/lib/validators";
 
 async function getStage(
@@ -6,6 +11,7 @@ async function getStage(
   stageId: string,
   context: Awaited<ReturnType<typeof requireAdmin>>,
 ) {
+  await requireActiveProject(context, projectId);
   const { data, error } = await context.supabase
     .from("funnel_stages")
     .select("id,name,stage_type,color,archived_at")

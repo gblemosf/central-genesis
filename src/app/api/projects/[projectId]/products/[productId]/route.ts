@@ -1,4 +1,9 @@
-import { ApiError, apiErrorResponse, requireAdmin } from "@/lib/api-auth";
+import {
+  ApiError,
+  apiErrorResponse,
+  requireActiveProject,
+  requireAdmin,
+} from "@/lib/api-auth";
 import {
   projectProductArchiveInputSchema,
   projectProductUpdateInputSchema,
@@ -11,6 +16,7 @@ export async function PATCH(
   try {
     const { projectId, productId } = await route.params;
     const context = await requireAdmin();
+    await requireActiveProject(context, projectId);
     const body = await request.json();
     const archiveInput = projectProductArchiveInputSchema.safeParse(body);
 
@@ -53,6 +59,7 @@ export async function DELETE(
   try {
     const { projectId, productId } = await route.params;
     const context = await requireAdmin();
+    await requireActiveProject(context, projectId);
     const { error } = await context.supabase.rpc("set_project_product_archived", {
       p_organization_id: context.organizationId,
       p_project_id: projectId,

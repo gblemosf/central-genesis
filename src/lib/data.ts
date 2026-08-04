@@ -188,7 +188,7 @@ export async function getProjects(): Promise<AppData<ProjectSummary[]>> {
   const { data: normalizedProjects, error: normalizedError } = await supabase
     .from("projects")
     .select(
-      "id,name,slug,status,color,monthly_revenue_target,margin_target,expert_id,experts(name)",
+      "id,name,slug,status,color,monthly_revenue_target,margin_target,expert_id,deleted_at,experts(name)",
     )
     .order("created_at", { ascending: true });
 
@@ -222,9 +222,15 @@ export async function getProjects(): Promise<AppData<ProjectSummary[]>> {
         (legacyProducts.data ?? []) as ProductMapRow[],
       )
     : [];
+  const activeNormalizedProjects = (normalizedProjects ?? []).filter(
+    (project) => !project.deleted_at,
+  );
+  const normalizedSlugs = new Set(
+    (normalizedProjects ?? []).map((project) => project.slug),
+  );
 
-  if (normalizedProjects?.length) {
-    const projectIds = normalizedProjects.map((project) => project.id);
+  if (activeNormalizedProjects.length) {
+    const projectIds = activeNormalizedProjects.map((project) => project.id);
     const [metrics, mappings] = await Promise.all([
       supabase
         .from("project_daily_metrics")
@@ -249,7 +255,7 @@ export async function getProjects(): Promise<AppData<ProjectSummary[]>> {
       };
     }
 
-    const projects = normalizedProjects.map((project, index) => {
+    const projects = activeNormalizedProjects.map((project, index) => {
       const dates = new Map<string, DailyMetric>();
       const metricFor = (date: string) => {
         const metric = dates.get(date) ?? {
@@ -330,7 +336,6 @@ export async function getProjects(): Promise<AppData<ProjectSummary[]>> {
       } as ProjectSummary;
     });
 
-    const normalizedSlugs = new Set(normalizedProjects.map((project) => project.slug));
     return {
       data: [
         ...projects,
@@ -349,7 +354,10 @@ export async function getProjects(): Promise<AppData<ProjectSummary[]>> {
     };
   }
 
-  return { data: legacyProjectSummaries, source: "live" };
+  return {
+    data: legacyProjectSummaries.filter((project) => !normalizedSlugs.has(project.id)),
+    source: "live",
+  };
 }
 
 export async function getProject(projectId: string) {
@@ -377,6 +385,7 @@ export async function getProjectCatalog(projectId: string): Promise<ProjectCatal
     .from("projects")
     .select("id,organization_id")
     .eq("id", projectId)
+    .is("deleted_at", null)
     .maybeSingle();
   if (projectError || !project) {
     return {
@@ -534,6 +543,7 @@ export async function getProjectAnalytics(
     .from("projects")
     .select("id,organization_id,slug,settings,reporting_timezone")
     .eq("id", projectId)
+    .is("deleted_at", null)
     .maybeSingle();
   if (projectError || !project) {
     return {

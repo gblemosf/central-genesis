@@ -69,6 +69,7 @@ export async function POST(
       .select("id,reporting_timezone")
       .eq("id", projectId)
       .eq("organization_id", context.organizationId)
+      .is("deleted_at", null)
       .maybeSingle();
     if (projectError) throw new ApiError("Nao foi possivel consultar o projeto.", 503);
     if (!project) throw new ApiError("Projeto nao encontrado.", 404);
@@ -146,7 +147,7 @@ export async function POST(
       allRows.push(...rows);
     }
 
-    const { data: processed, error: replaceError } = await admin.rpc(
+    const { data: processed, error: replaceError } = await context.supabase.rpc(
       "replace_meta_metrics",
       {
         p_organization_id: context.organizationId,

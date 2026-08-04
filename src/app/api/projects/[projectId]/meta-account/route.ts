@@ -14,6 +14,7 @@ export async function PUT(
       .select("id")
       .eq("id", projectId)
       .eq("organization_id", context.organizationId)
+      .is("deleted_at", null)
       .maybeSingle();
     if (projectError) throw new ApiError("Nao foi possivel consultar o projeto.", 503);
     if (!project) throw new ApiError("Projeto nao encontrado.", 404);
