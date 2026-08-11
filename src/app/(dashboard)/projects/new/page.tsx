@@ -7,6 +7,7 @@ import {
 import { getSupabasePublicEnv } from "@/lib/supabase/env";
 
 export const metadata: Metadata = { title: "Novo projeto" };
+export const dynamic = "force-dynamic";
 
 export default async function NewProjectPage() {
   const demoMode = getSupabasePublicEnv().demoMode;

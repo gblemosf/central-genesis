@@ -61,6 +61,7 @@ const providerHelp: Record<Provider, string> = {
   eduzz: "Token OAuth autorizado com o escopo myeduzz_products_read.",
   kiwify: "API Key, Client Secret e ID da conta para validar e listar produtos.",
   hubla: "A Hubla publica apenas token de webhook; produtos sao cadastrados manualmente.",
+  google_forms: "OAuth organizacional para ler formularios e respostas do Google Forms.",
 };
 
 function credentialsFromForm(form: ConnectionForm) {
@@ -496,6 +497,7 @@ export function IntegrationsManager({
                     connection.provider === "eduzz" && "bg-emerald-100 text-emerald-700",
                     connection.provider === "kiwify" && "bg-amber-100 text-amber-800",
                     connection.provider === "hubla" && "bg-rose-100 text-rose-700",
+                    connection.provider === "google_forms" && "bg-sky-100 text-sky-700",
                   )}
                 >
                   <KeyRound size={18} />
@@ -527,11 +529,17 @@ export function IntegrationsManager({
               </div>
               <div className="flex justify-between border-b border-[var(--line)] pb-3">
                 <span className="text-[var(--muted)]">
-                  {connection.provider === "meta" ? "Contas vinculadas" : "Produtos no catalogo"}
+                  {connection.provider === "meta"
+                    ? "Contas vinculadas"
+                    : connection.provider === "google_forms"
+                      ? "Formularios vinculados"
+                      : "Produtos no catalogo"}
                 </span>
                 <span className="font-black">
                   {connection.provider === "meta"
                     ? connection.accountCount
+                    : connection.provider === "google_forms"
+                      ? "Projeto"
                     : connection.productCount}
                 </span>
               </div>
@@ -554,6 +562,19 @@ export function IntegrationsManager({
                   </button>
                 </div>
               )}
+              {connection.provider === "hotmart" && (
+                <div className="border-t border-[var(--line)] pt-3">
+                  <span className="mb-2 block text-[var(--muted)]">Endpoint Hotmart</span>
+                  <button
+                    type="button"
+                    onClick={() => navigator.clipboard.writeText(`${window.location.origin}/api/webhooks/hotmart/${connection.id}`)}
+                    className="flex w-full items-center justify-between gap-2 rounded-lg bg-black/5 px-3 py-2 text-left font-bold"
+                  >
+                    <span className="truncate">Copiar URL do webhook</span>
+                    <Copy size={13} className="shrink-0" />
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="mt-5 grid grid-cols-2 gap-2">
@@ -565,7 +586,18 @@ export function IntegrationsManager({
               >
                 <Pencil size={14} /> Editar
               </button>
-              {connection.provider !== "hubla" && (
+              {connection.provider === "google_forms" && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    window.location.href = "/api/connections/google/authorize";
+                  }}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-sky-200 py-2.5 text-[10px] font-bold text-sky-800"
+                >
+                  <RefreshCw size={14} /> Reconectar
+                </button>
+              )}
+              {connection.provider !== "hubla" && connection.provider !== "google_forms" && (
                 <button
                   type="button"
                   disabled={busyId === connection.id || connection.status === "revoked"}
@@ -645,6 +677,22 @@ export function IntegrationsManager({
             <strong className="block text-sm">Adicionar outra conexao</strong>
             <small className="mt-2 block max-w-48 text-[11px] leading-5 text-[var(--muted)]">
               Um token por BM quando os ativos estiverem separados.
+            </small>
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            window.location.href = "/api/connections/google/authorize";
+          }}
+          className="grid min-h-72 place-items-center rounded-[24px] border border-dashed border-sky-300 bg-sky-50/70 p-6 text-center text-sky-950 transition hover:bg-sky-50"
+        >
+          <span>
+            <KeyRound className="mx-auto mb-3 text-sky-600" />
+            <strong className="block text-sm">Conectar Google Forms</strong>
+            <small className="mt-2 block max-w-56 text-[11px] leading-5 text-sky-900/70">
+              Autorize uma conta Google da organizacao para ler formularios e respostas.
             </small>
           </span>
         </button>

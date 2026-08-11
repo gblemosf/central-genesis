@@ -2,6 +2,7 @@
 
 import {
   ArrowRight,
+  ArrowUpDown,
   Check,
   Database,
   Download,
@@ -19,6 +20,10 @@ import type {
   ProjectMetricConfig,
   ProjectProduct,
 } from "@/lib/domain";
+import {
+  inspectMetricsCsv,
+  type MetricsCsvInspection,
+} from "@/lib/metrics-csv";
 import {
   aggregateProjectDailyMetrics,
   calculateDailyPerformance,
@@ -42,6 +47,7 @@ function hasMetricData(metric: ProjectAnalytics["dailyMetrics"][number]) {
     metric.pageViews !== 0 ||
     metric.checkouts !== 0 ||
     metric.coreSales !== 0 ||
+    Boolean(metric.csvDaily && Object.values(metric.csvDaily).some((value) => value !== 0)) ||
     metric.productMetrics.some(
       (product) => product.quantity !== 0 || product.revenue !== 0,
     )
@@ -91,6 +97,47 @@ function NumberField({
   );
 }
 
+function CsvPreview({ preview }: { preview: MetricsCsvInspection | null }) {
+  if (!preview) return null;
+  return (
+    <div className="mt-4 rounded-xl bg-black/[0.035] p-3 font-normal">
+      <div className="flex flex-wrap items-center gap-2 text-[9px] font-bold uppercase tracking-wider">
+        <span className="rounded-full bg-white px-2 py-1">
+          Metricas diarias
+        </span>
+        <span>{preview.rows.length} linha(s) valida(s)</span>
+        <span>{preview.errors.length} erro(s)</span>
+      </div>
+      <p className="mt-2 break-words text-[9px] leading-4 text-[var(--muted)]">
+        {preview.headers.join(" | ") || "Cabecalhos indisponiveis"}
+      </p>
+      {preview.errors.length > 0 && (
+        <ul className="mt-3 max-h-28 space-y-1 overflow-auto rounded-lg bg-red-50 p-3 text-[9px] text-red-800">
+          {preview.errors.map((error, index) => (
+            <li key={`${error.line ?? "file"}-${index}`}>{error.message}</li>
+          ))}
+        </ul>
+      )}
+      {preview.rows.length > 0 && (
+        <div className="mt-3 overflow-x-auto">
+          <table className="min-w-full text-left text-[9px]">
+            <tbody>
+              {preview.rows.slice(0, 3).map((row) => (
+                <tr key={row.line} className="border-t border-black/5">
+                  <td className="whitespace-nowrap py-1 pr-3 font-bold">Linha {row.line}</td>
+                  <td className="whitespace-nowrap py-1 text-[var(--muted)]">
+                    {Object.values(row.raw).join(" | ")}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ProjectMetricsPanel({
   projectId,
   analytics,
@@ -109,8 +156,7 @@ export function ProjectMetricsPanel({
   const router = useRouter();
   const hasObservedData = analytics.dailyMetrics.some(hasMetricData);
   const hasAnySourceRows =
-    analytics.dataSources.csvTrafficRows > 0 ||
-    analytics.dataSources.csvSalesRows > 0 ||
+    analytics.dataSources.csvDailyRows > 0 ||
     analytics.dataSources.metaTrafficRows > 0 ||
     analytics.dataSources.webhookSalesEvents > 0;
   const [isRefreshing, startTransition] = useTransition();
@@ -123,12 +169,24 @@ export function ProjectMetricsPanel({
     "idle",
   );
   const [message, setMessage] = useState(analytics.warning ?? "");
-  const [trafficFile, setTrafficFile] = useState<File | null>(null);
-  const [salesFile, setSalesFile] = useState<File | null>(null);
+  const [metricsFile, setMetricsFile] = useState<File | null>(null);
+  const [metricsPreview, setMetricsPreview] = useState<MetricsCsvInspection | null>(null);
+  const [inspectingCsv, setInspectingCsv] = useState(false);
+  const inspectionSequence = useRef(0);
   const [importing, setImporting] = useState(false);
-  const trafficInput = useRef<HTMLInputElement>(null);
-  const salesInput = useRef<HTMLInputElement>(null);
+  const metricsInput = useRef<HTMLInputElement>(null);
+  const csvHasErrors = Boolean(
+    inspectingCsv || metricsPreview?.errors.length,
+  );
   const populatedRows = analytics.dailyMetrics.filter(hasMetricData);
+  const [dailyStart, setDailyStart] = useState(analytics.config.periodStart);
+  const [dailyEnd, setDailyEnd] = useState(analytics.config.periodEnd);
+  const [dailyAscending, setDailyAscending] = useState(true);
+  const dailyRows = populatedRows
+    .filter((metric) => metric.date >= dailyStart && metric.date <= dailyEnd)
+    .sort((a, b) => dailyAscending
+      ? a.date.localeCompare(b.date)
+      : b.date.localeCompare(a.date));
   const hasRevenueMetrics = populatedRows.some((metric) => metric.revenue !== 0);
   const stageById = new Map(stages.map((stage) => [stage.id, stage]));
   const mappedProducts = products
@@ -139,18 +197,24 @@ export function ProjectMetricsPanel({
       return positionA - positionB || a.name.localeCompare(b.name);
     });
   const productById = new Map(mappedProducts.map((product) => [product.id, product]));
-  const calculatedRows = populatedRows.map((metric) =>
+  const calculatedRows = dailyRows.map((metric) =>
     calculateDailyPerformance(metric, config.trafficFeePercent),
   );
   const aggregate = aggregateProjectDailyMetrics(populatedRows);
+  const dailyAggregate = aggregateProjectDailyMetrics(dailyRows);
   const orderBumpProducts = aggregate.productMetrics
     .filter((product) => product.stageType === "order_bump")
     .sort((a, b) => {
       const positionA = stageById.get(a.stageId)?.position ?? 0;
       const positionB = stageById.get(b.stageId)?.position ?? 0;
       return positionA - positionB || a.productName.localeCompare(b.productName);
-    });
-  const total = calculateDailyPerformance(aggregate, config.trafficFeePercent);
+    })
+    .slice(0, 3);
+  const orderBumpSlots = Array.from(
+    { length: 3 },
+    (_, index) => orderBumpProducts[index] ?? null,
+  );
+  const total = calculateDailyPerformance(dailyAggregate, config.trafficFeePercent);
   const financial = calculateFinancialSummary(populatedRows, config);
   const productTotals = aggregate.productMetrics;
 
@@ -243,8 +307,8 @@ export function ProjectMetricsPanel({
   const missingPlanning = planningRequirements.filter((requirement) => !requirement.ready);
   const planningReady = missingPlanning.length === 0;
   const trafficSourceSummary = [
-    analytics.dataSources.csvTrafficRows > 0
-      ? `${analytics.dataSources.csvTrafficRows} linha(s) CSV`
+    analytics.dataSources.csvDailyRows > 0
+      ? `${analytics.dataSources.csvDailyRows} linha(s) CSV diario`
       : null,
     analytics.dataSources.metaTrafficRows > 0
       ? `${analytics.dataSources.metaTrafficRows} dia(s) Meta`
@@ -253,8 +317,8 @@ export function ProjectMetricsPanel({
     .filter(Boolean)
     .join(" + ") || "Pendente";
   const salesSourceSummary = [
-    analytics.dataSources.csvSalesRows > 0
-      ? `${analytics.dataSources.csvSalesRows} linha(s) CSV`
+    analytics.dataSources.csvDailyRows > 0
+      ? `${analytics.dataSources.csvDailyRows} linha(s) CSV diario`
       : null,
     analytics.dataSources.webhookSalesEvents > 0
       ? `${analytics.dataSources.webhookSalesEvents} evento(s) webhook`
@@ -268,6 +332,8 @@ export function ProjectMetricsPanel({
     value: ProjectMetricConfig[Key],
   ) => {
     setConfig((current) => ({ ...current, [key]: value }));
+    if (key === "periodStart" && typeof value === "string") setDailyStart(value);
+    if (key === "periodEnd" && typeof value === "string") setDailyEnd(value);
     setConfigConfirmed(false);
   };
 
@@ -311,12 +377,13 @@ export function ProjectMetricsPanel({
   }
 
   async function importMetrics() {
-    if ((!trafficFile && !salesFile) || importing || readOnly || demoMode) return;
+    if (
+      !metricsFile || importing || readOnly || demoMode || csvHasErrors
+    ) return;
     setImporting(true);
     setMessage("");
     const formData = new FormData();
-    if (trafficFile) formData.set("trafficFile", trafficFile);
-    if (salesFile) formData.set("salesFile", salesFile);
+    formData.set("metricsFile", metricsFile);
 
     try {
       const response = await fetch(`/api/projects/${projectId}/metrics-import`, {
@@ -326,16 +393,21 @@ export function ProjectMetricsPanel({
       const body = (await response.json().catch(() => null)) as
         | {
             data?: {
-              trafficRows: number;
-              salesRows: number;
+              dailyRows: number;
+              duplicate: boolean;
               periodStart: string;
               periodEnd: string;
             };
             error?: string;
+            issues?: { file: string; line?: number; message: string }[];
           }
         | null;
       if (!response.ok || !body?.data) {
-        setMessage(body?.error ?? "Nao foi possivel importar as planilhas.");
+        setMessage(
+          body?.issues?.map((issue) => `${issue.file}: ${issue.message}`).join(" | ")
+            ?? body?.error
+            ?? "Nao foi possivel importar a planilha.",
+        );
         setImporting(false);
         return;
       }
@@ -345,13 +417,16 @@ export function ProjectMetricsPanel({
         periodStart: body.data!.periodStart,
         periodEnd: body.data!.periodEnd,
       }));
+      setDailyStart(body.data.periodStart);
+      setDailyEnd(body.data.periodEnd);
       setMessage(
-        `${body.data.trafficRows} linha(s) de trafego e ${body.data.salesRows} linha(s) de vendas importadas.`,
+        body.data.duplicate
+          ? "Este arquivo ja havia sido processado; nenhuma metrica foi alterada."
+          : `${body.data.dailyRows} linha(s) diarias importadas.`,
       );
-      setTrafficFile(null);
-      setSalesFile(null);
-      if (trafficInput.current) trafficInput.current.value = "";
-      if (salesInput.current) salesInput.current.value = "";
+      setMetricsFile(null);
+      setMetricsPreview(null);
+      if (metricsInput.current) metricsInput.current.value = "";
       setImporting(false);
       setView("daily");
       startTransition(() => router.refresh());
@@ -361,6 +436,21 @@ export function ProjectMetricsPanel({
     }
   }
 
+  async function selectCsv(file: File | null) {
+    const sequence = ++inspectionSequence.current;
+    setMetricsFile(file);
+    if (!file) {
+      setInspectingCsv(false);
+      setMetricsPreview(null);
+      return;
+    }
+    setInspectingCsv(true);
+    const preview = inspectMetricsCsv(await file.text());
+    if (sequence !== inspectionSequence.current) return;
+    setMetricsPreview(preview);
+    setInspectingCsv(false);
+  }
+
   const dailyDate = (date: string) => {
     if (date === "GERAL") return date;
     const [year, month, day] = date.split("-");
@@ -368,12 +458,17 @@ export function ProjectMetricsPanel({
   };
   const orderBumpFor = (
     row: ReturnType<typeof calculateDailyPerformance>,
-    productId: string,
-    stageId: string,
-  ) =>
-    row.orderBumps.find(
-      (product) => product.productId === productId && product.stageId === stageId,
-    );
+    product: (typeof orderBumpSlots)[number],
+    index: number,
+  ) => product
+    ? row.orderBumps.find(
+        (item) => item.productId === product.productId && item.stageId === product.stageId,
+      )
+    : row.orderBumps[index];
+  const percentOrUnavailable = (value: number | null) =>
+    value === null ? "N/D" : formatPercent(value);
+  const ratioOrUnavailable = (value: number | null) =>
+    value === null ? "N/D" : `${value.toFixed(2)}x`;
 
   return (
     <div className="space-y-5">
@@ -413,9 +508,9 @@ export function ProjectMetricsPanel({
                 Este projeto ainda nao recebeu dados observados
               </h2>
               <p className="mt-2 text-xs leading-5">
-                Os CSVs ou as integracoes alimentam o que realmente aconteceu. As
+                O CSV diario ou as integracoes alimentam o que realmente aconteceu. As
                 premissas servem apenas para custos e projecoes futuras; elas nao
-                substituem os arquivos de trafego e vendas.
+                substituem os dados observados.
               </p>
             </div>
             <div className="flex shrink-0 flex-wrap gap-2">
@@ -424,7 +519,7 @@ export function ProjectMetricsPanel({
                 onClick={() => setView("data")}
                 className="inline-flex items-center gap-2 rounded-xl bg-[var(--ink)] px-4 py-3 text-xs font-bold text-white"
               >
-                <Upload size={14} /> Importar os CSVs
+                <Upload size={14} /> Importar CSV diario
               </button>
               <button
                 type="button"
@@ -448,12 +543,22 @@ export function ProjectMetricsPanel({
                 Midia, funil e vendas
               </h2>
             </div>
-            <p className="text-[10px] text-[var(--muted)]">
-              {dailyDate(config.periodStart)} a {dailyDate(config.periodEnd)}
-            </p>
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="text-[9px] font-bold text-[var(--muted)]">
+                De
+                <input className="field mt-1 h-9 py-1 text-[10px]" type="date" value={dailyStart} min={config.periodStart} max={dailyEnd} onChange={(event) => setDailyStart(event.target.value)} />
+              </label>
+              <label className="text-[9px] font-bold text-[var(--muted)]">
+                Ate
+                <input className="field mt-1 h-9 py-1 text-[10px]" type="date" value={dailyEnd} min={dailyStart} max={config.periodEnd} onChange={(event) => setDailyEnd(event.target.value)} />
+              </label>
+              <button type="button" onClick={() => setDailyAscending((current) => !current)} className="inline-flex h-9 items-center gap-1 rounded-lg border border-[var(--line)] px-3 text-[9px] font-bold">
+                <ArrowUpDown size={12} /> {dailyAscending ? "Mais antigas" : "Mais recentes"}
+              </button>
+            </div>
           </div>
           <div className="overflow-x-auto">
-            <table className="min-w-[1500px] w-full border-collapse text-right text-[10px]">
+            <table className="min-w-[1900px] w-full border-collapse text-right text-[10px]">
               <thead className="bg-[var(--sidebar)] text-white">
                 <tr>
                   {[
@@ -462,16 +567,18 @@ export function ProjectMetricsPanel({
                     "Connect rate",
                     "Conv. LP",
                     "Conv. checkout",
-                    "Vendas core",
+                    "Vendas",
                     "Faturamento core",
                     "Gasto trafego",
                     "Gasto final",
                     "ROAS core",
-                    ...orderBumpProducts.flatMap((product, index) => [
-                      `Vendas OB${index + 1}`,
-                      product.productName,
+                    ...orderBumpSlots.flatMap((_, index) => [
+                      "Vendas",
+                      `OB${index + 1}`,
                     ]),
+                    "CPA",
                     "Faturamento total",
+                    "ARPU",
                     "ROAS geral",
                   ].map((label, index) => (
                     <th
@@ -496,42 +603,31 @@ export function ProjectMetricsPanel({
                     <td className="whitespace-nowrap px-3 py-3 text-left font-bold">
                       {dailyDate(row.date)}
                     </td>
-                    <td className="px-3 py-3">{formatPercent(row.ctr)}</td>
-                    <td className="px-3 py-3">{formatPercent(row.connectRate)}</td>
-                    <td className="px-3 py-3">{formatPercent(row.landingPageConversion)}</td>
-                    <td className="px-3 py-3">{formatPercent(row.checkoutConversion)}</td>
-                    <td className="px-3 py-3">{formatNumber(row.coreSales)}</td>
+                    <td className="px-3 py-3">{percentOrUnavailable(row.ctr)}</td>
+                    <td className="px-3 py-3">{percentOrUnavailable(row.connectRate)}</td>
+                    <td className="px-3 py-3">{percentOrUnavailable(row.landingPageConversion)}</td>
+                    <td className="px-3 py-3">{percentOrUnavailable(row.checkoutConversion)}</td>
+                    <td className="px-3 py-3">{formatNumber(row.csvDaily?.core ?? row.coreSales)}</td>
                     <td className="px-3 py-3">
-                      {row.coreSales > 0 &&
-                      !row.productMetrics.some(
-                        (product) =>
-                          product.stageType === "core" && product.revenue !== 0,
-                      )
-                        ? "N/D"
-                        : formatCurrency(row.coreRevenue)}
+                      {row.coreRevenueAvailable ? formatCurrency(row.coreRevenue) : "N/D"}
                     </td>
                     <td className="px-3 py-3">{formatCurrency(row.investment)}</td>
                     <td className="px-3 py-3">{formatCurrency(row.finalInvestment)}</td>
-                    <td className="px-3 py-3">
-                      {row.coreSales > 0 &&
-                      !row.productMetrics.some(
-                        (product) =>
-                          product.stageType === "core" && product.revenue !== 0,
-                      )
-                        ? "N/D"
-                        : `${row.coreRoas.toFixed(2)}x`}
-                    </td>
-                    {orderBumpProducts.flatMap((product) => {
-                      const bump = orderBumpFor(row, product.productId, product.stageId);
+                    <td className="px-3 py-3">{ratioOrUnavailable(row.coreRoas)}</td>
+                    {orderBumpSlots.flatMap((product, index) => {
+                      const bump = orderBumpFor(row, product, index);
+                      const key = product
+                        ? `${product.productId}-${product.stageId}`
+                        : `order-bump-${index + 1}`;
                       return [
                         <td
-                          key={`${product.productId}-${product.stageId}-sales`}
+                          key={`${key}-sales`}
                           className="px-3 py-3"
                         >
                           {formatNumber(bump?.quantity ?? 0)}
                         </td>,
                         <td
-                          key={`${product.productId}-${product.stageId}-revenue`}
+                          key={`${key}-revenue`}
                           className="px-3 py-3"
                         >
                           {(bump?.quantity ?? 0) > 0 && (bump?.revenue ?? 0) === 0
@@ -540,8 +636,16 @@ export function ProjectMetricsPanel({
                         </td>,
                       ];
                     })}
-                    <td className="px-3 py-3">{formatCurrency(row.trackedRevenue)}</td>
-                    <td className="px-3 py-3">{row.generalRoas.toFixed(2)}x</td>
+                    <td className="px-3 py-3">
+                      {row.cpa === null ? "N/D" : formatCurrency(row.cpa)}
+                    </td>
+                    <td className="px-3 py-3">
+                      {row.trackedRevenueAvailable ? formatCurrency(row.trackedRevenue) : "N/D"}
+                    </td>
+                    <td className="px-3 py-3">
+                      {row.arpu === null ? "N/D" : formatCurrency(row.arpu)}
+                    </td>
+                    <td className="px-3 py-3">{ratioOrUnavailable(row.generalRoas)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -729,9 +833,9 @@ export function ProjectMetricsPanel({
 
             <div className="mt-6 grid gap-3 md:grid-cols-3">
               {[
-                ["1", "Escolha a fonte", "Envie trafego, vendas ou os dois arquivos."],
+                ["1", "Escolha o arquivo", "Envie uma linha combinada por dia medido."],
                 ["2", "Validacao automatica", "Datas, colunas e numeros sao conferidos antes de salvar."],
-                ["3", "Leitura por data", "Trafego e vendas se encontram pela data de cada linha."],
+                ["3", "Calculo no painel", "Taxas e valores financeiros sao derivados das premissas."],
               ].map(([number, title, description]) => (
                 <div key={number} className="rounded-2xl bg-black/[0.035] p-4">
                   <span className="grid size-6 place-items-center rounded-full bg-[var(--ink)] text-[10px] font-black text-white">
@@ -745,57 +849,36 @@ export function ProjectMetricsPanel({
               ))}
             </div>
 
-            <div className="mt-6 grid gap-4 lg:grid-cols-2">
-              <label className="rounded-2xl border border-dashed border-[var(--line)] bg-white/35 p-5 text-xs font-bold">
-                Planilha de trafego
+            <div className="mt-6 max-w-3xl">
+              <label className="block rounded-2xl border border-dashed border-[var(--line)] bg-white/35 p-5 text-xs font-bold">
+                Planilha diaria combinada
                 <input
-                  ref={trafficInput}
+                  ref={metricsInput}
                   className="mt-3 block w-full text-[11px] font-medium file:mr-3 file:rounded-lg file:border-0 file:bg-[var(--ink)] file:px-3 file:py-2 file:text-[10px] file:font-bold file:text-white"
                   type="file"
                   accept=".csv,text/csv"
-                  onChange={(event) => setTrafficFile(event.target.files?.[0] ?? null)}
+                  onChange={(event) => void selectCsv(event.target.files?.[0] ?? null)}
                   disabled={readOnly || demoMode}
                 />
                 <span className="mt-3 block font-normal leading-5 text-[var(--muted)]">
-                  Obrigatorias: date, invest, impressions, clicks, pageviews e
-                  checkouts. Aceita datas AAAA-MM-DD ou DD/MM/AAAA.
+                  Obrigatorias: date, invest, impressions, clicks, pageviews, checkouts,
+                  core, ob1, ob2 e ob3. Aceita datas AAAA-MM-DD ou DD/MM/AAAA.
                 </span>
                 <a
-                  href="/templates/metricas-trafego.csv"
+                  href="/templates/metricas-diarias.csv"
                   download
                   className="mt-3 inline-flex items-center gap-2 text-[10px] font-black text-violet-800"
                 >
-                  <Download size={13} /> Baixar modelo de trafego
+                  <Download size={13} /> Baixar modelo diario
                 </a>
-              </label>
-              <label className="rounded-2xl border border-dashed border-[var(--line)] bg-white/35 p-5 text-xs font-bold">
-                Planilha de vendas
-                <input
-                  ref={salesInput}
-                  className="mt-3 block w-full text-[11px] font-medium file:mr-3 file:rounded-lg file:border-0 file:bg-[var(--ink)] file:px-3 file:py-2 file:text-[10px] file:font-bold file:text-white"
-                  type="file"
-                  accept=".csv,text/csv"
-                  onChange={(event) => setSalesFile(event.target.files?.[0] ?? null)}
-                  disabled={readOnly || demoMode}
-                />
-                <span className="mt-3 block font-normal leading-5 text-[var(--muted)]">
-                  Obrigatorias: date, core e fat_liquido. OBs, upsells e downsells sao
-                  opcionais; ob1 corresponde ao primeiro Order bump do funil.
-                </span>
-                <a
-                  href="/templates/metricas-vendas.csv"
-                  download
-                  className="mt-3 inline-flex items-center gap-2 text-[10px] font-black text-violet-800"
-                >
-                  <Download size={13} /> Baixar modelo de vendas
-                </a>
+                <CsvPreview preview={metricsPreview} />
               </label>
             </div>
 
             <div className="mt-4 rounded-xl bg-blue-50 px-4 py-3 text-[11px] leading-5 text-blue-950">
               <strong>Como a atualizacao funciona:</strong> somente as datas presentes no
-              arquivo sao atualizadas; as demais permanecem. O CSV de vendas traz o
-              faturamento liquido total, mas nao separa receita individual por produto.
+              arquivo sao atualizadas; as demais permanecem. Faturamento core, faturamento
+              dos tres order bumps, CPA, ARPU e ROAS sao recalculados no painel.
             </div>
 
             {(readOnly || demoMode) && (
@@ -809,7 +892,8 @@ export function ProjectMetricsPanel({
               disabled={
                 importing ||
                 isRefreshing ||
-                (!trafficFile && !salesFile) ||
+                !metricsFile ||
+                csvHasErrors ||
                 readOnly ||
                 demoMode
               }
@@ -820,8 +904,33 @@ export function ProjectMetricsPanel({
               ) : (
                 <Upload size={15} />
               )}
-              {importing ? "Importando..." : "Importar planilhas"}
+              {importing ? "Importando..." : "Importar planilha"}
             </button>
+          </section>
+          <section className="panel rounded-[24px] p-6">
+            <p className="eyebrow">Historico imutavel</p>
+            <h2 className="mt-2 text-xl font-black">Arquivos processados</h2>
+            <div className="mt-5 space-y-2">
+              {(analytics.imports ?? []).map((item) => (
+                <div key={item.id} className="grid gap-2 rounded-xl bg-black/[0.035] p-4 text-[10px] sm:grid-cols-[1fr_auto_auto] sm:items-center">
+                  <div className="min-w-0">
+                    <p className="truncate font-black">{item.filename}</p>
+                    <p className="mt-1 truncate text-[9px] text-[var(--muted)]">
+                      SHA-256 {item.sha256}
+                    </p>
+                  </div>
+                  <span className="font-bold">
+                    Diario · {item.rows} linha(s)
+                  </span>
+                  <span className="text-[var(--muted)]">
+                    {dailyDate(item.periodStart)} a {dailyDate(item.periodEnd)}
+                  </span>
+                </div>
+              ))}
+              {!analytics.imports?.length && (
+                <p className="text-xs text-[var(--muted)]">Nenhum arquivo versionado ainda.</p>
+              )}
+            </div>
           </section>
         </div>
       )}
@@ -1089,12 +1198,11 @@ export function ProjectMetricsPanel({
           <section className="panel rounded-[24px] p-6">
             <p className="eyebrow">Planejamento de investimento</p>
             <p className="mt-2 text-xs leading-5 text-[var(--muted)]">
-              Usado apenas nos cenarios futuros. O realizado continua vindo do CSV de
-              trafego ou da Meta.
+              Usado apenas nos cenarios futuros. O realizado continua vindo do CSV diario
+              ou da Meta.
             </p>
             <div className="mt-5 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
-              <NumberField label="Midia total planejada" value={config.plannedTrafficInvestment} help="Teto total de midia previsto para o periodo." onChange={(value) => updateConfig("plannedTrafficInvestment", value)} />
-              <NumberField label="Midia para ingresso" value={config.ticketBudget} help="Parte da verba destinada a vender o produto de entrada." onChange={(value) => updateConfig("ticketBudget", value)} />
+               <NumberField label="Midia para ingresso" value={config.ticketBudget} help="Parte da verba destinada a vender o produto de entrada." onChange={(value) => updateConfig("ticketBudget", value)} />
               <NumberField label="Automacao / API" value={config.apiBudget} help="Reserva planejada para API ou automacao; nao e venda nem trafego realizado." onChange={(value) => updateConfig("apiBudget", value)} />
               <NumberField label="Remarketing" value={config.remarketingBudget} help="Verba de midia para impactar novamente a audiencia." onChange={(value) => updateConfig("remarketingBudget", value)} />
               <NumberField label="Distribuicao" value={config.distributionBudget} help="Verba de midia para distribuicao de conteudo ou campanhas auxiliares." onChange={(value) => updateConfig("distributionBudget", value)} />
@@ -1137,8 +1245,11 @@ export function ProjectMetricsPanel({
                   </span>
                 </label>
               ))}
-              <NumberField label="Ticket liquido ingresso" value={config.ticketNetPrice} help="Valor liquido recebido por venda do produto de entrada." onChange={(value) => updateConfig("ticketNetPrice", value)} />
-              <NumberField label="Ticket liquido formacao" value={config.formationNetPrice} help="Valor liquido recebido por venda da formacao ou produto principal." onChange={(value) => updateConfig("formationNetPrice", value)} />
+               <NumberField label="Preco liquido core" value={config.ticketNetPrice} help="Valor liquido por venda core, usado no faturamento diario e nas projecoes de ingresso." onChange={(value) => updateConfig("ticketNetPrice", value)} />
+               <NumberField label="Preco liquido OB1" value={config.orderBump1NetPrice} help="Valor liquido por venda do primeiro order bump." onChange={(value) => updateConfig("orderBump1NetPrice", value)} />
+               <NumberField label="Preco liquido OB2" value={config.orderBump2NetPrice} help="Valor liquido por venda do segundo order bump." onChange={(value) => updateConfig("orderBump2NetPrice", value)} />
+               <NumberField label="Preco liquido OB3" value={config.orderBump3NetPrice} help="Valor liquido por venda do terceiro order bump." onChange={(value) => updateConfig("orderBump3NetPrice", value)} />
+               <NumberField label="Ticket liquido formacao" value={config.formationNetPrice} help="Valor liquido recebido por venda da formacao ou produto principal." onChange={(value) => updateConfig("formationNetPrice", value)} />
             </div>
           </section>
 
@@ -1146,7 +1257,7 @@ export function ProjectMetricsPanel({
             <p className="eyebrow">Base historica para projecao</p>
             <p className="mt-2 text-xs leading-5 text-[var(--muted)]">
               Use os numeros de uma campanha anterior comparavel. Eles calculam taxas de
-              comparecimento e conversao; nao sao extraidos dos dois CSVs atuais.
+              comparecimento e conversao; nao sao extraidos do CSV diario atual.
             </p>
             <div className="mt-5 grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
               <NumberField label="Ingressos vendidos" value={config.historicalTicketSales} help="Quantidade de ingressos vendidos na referencia anterior." onChange={(value) => updateConfig("historicalTicketSales", value)} />

@@ -6,6 +6,7 @@ import {
   credentialInputSchema,
   funnelStageInputSchema,
   funnelStageOrderInputSchema,
+  googleFormSyncInputSchema,
   projectDeleteInputSchema,
   projectInputSchema,
   projectMetricConfigInputSchema,
@@ -219,6 +220,36 @@ describe("credentialInputSchema", () => {
         name: "Kiwify principal",
         provider: "kiwify",
         credentials: { clientId: "client-id", clientSecret: "client-secret" },
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("googleFormSyncInputSchema", () => {
+  it("aceita vincular uma URL nova a uma conexao Google", () => {
+    expect(
+      googleFormSyncInputSchema.safeParse({
+        connectionId: "00000000-0000-4000-8000-000000000001",
+        formUrl: "https://docs.google.com/forms/d/abc1234567890123456789/edit",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("aceita atualizar um formulario ja vinculado", () => {
+    expect(
+      googleFormSyncInputSchema.safeParse({
+        googleFormId: "00000000-0000-4000-8000-000000000002",
+        fullSync: false,
+      }).success,
+    ).toBe(true);
+  });
+
+  it("exige URL nova ou formulario existente, mas nao ambos", () => {
+    expect(googleFormSyncInputSchema.safeParse({}).success).toBe(false);
+    expect(
+      googleFormSyncInputSchema.safeParse({
+        formUrl: "https://docs.google.com/forms/d/abc1234567890123456789/edit",
+        googleFormId: "00000000-0000-4000-8000-000000000002",
       }).success,
     ).toBe(false);
   });

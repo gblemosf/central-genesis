@@ -5,6 +5,7 @@ import {
   ArrowDown,
   ArrowUp,
   Check,
+  KeyRound,
   LoaderCircle,
   Plus,
   RefreshCw,
@@ -19,6 +20,7 @@ import type {
   ProjectAnalytics,
   ProjectCatalog,
   ProjectFunnelStage,
+  ProjectFormsData,
   ProjectProduct,
   ProjectSummary,
 } from "@/lib/domain";
@@ -58,22 +60,34 @@ const projectStatusLabels: Record<ProjectSummary["status"], string> = {
   archived: "Projeto arquivado",
 };
 
+function formatDateTime(value: string | null) {
+  if (!value) return "Pendente";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(date);
+}
+
 export function ProjectWorkspace({
   project,
   initialCatalog,
   analytics,
+  initialForms,
   demoMode,
 }: {
   project: ProjectSummary;
   initialCatalog: ProjectCatalog;
   analytics: ProjectAnalytics;
+  initialForms: ProjectFormsData;
   demoMode: boolean;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
-  const [tab, setTab] = useState<"overview" | "metrics" | "products" | "settings">(
-    "overview",
-  );
+  const [tab, setTab] = useState<
+    "overview" | "metrics" | "forms" | "leads" | "utms" | "products" | "settings"
+  >("overview");
   const demoProducts = productSets[project.id] ?? [
     { name: "Produto principal", stage: "Core", price: 0 },
   ];
@@ -124,6 +138,15 @@ export function ProjectWorkspace({
   );
   const [operation, setOperation] = useState<"idle" | "linking" | "syncing">("idle");
   const [operationMessage, setOperationMessage] = useState("");
+  const googleConnections = initialForms.connections.filter(
+    (connection) => connection.status !== "revoked",
+  );
+  const [googleConnectionId, setGoogleConnectionId] = useState(
+    googleConnections[0]?.id ?? "",
+  );
+  const [googleFormUrl, setGoogleFormUrl] = useState("");
+  const [formsOperation, setFormsOperation] = useState<"idle" | "syncing">("idle");
+  const [formsMessage, setFormsMessage] = useState("");
   const [projectSettings, setProjectSettings] = useState({
     monthlyTarget: project.monthlyTarget,
     marginTarget: project.marginTarget,
@@ -176,13 +199,13 @@ export function ProjectWorkspace({
   const hasSalesData = project.dailyMetrics.some(
     (metric) => metric.revenue !== 0 || metric.coreSales !== 0,
   );
-  const trafficSourceSummary = analytics.dataSources.csvTrafficRows > 0
-    ? `CSV (${analytics.dataSources.csvTrafficRows} linhas)`
+  const trafficSourceSummary = analytics.dataSources.csvDailyRows > 0
+    ? `CSV diario (${analytics.dataSources.csvDailyRows} linhas)`
     : analytics.dataSources.metaTrafficRows > 0
       ? `Meta (${analytics.dataSources.metaTrafficRows} dias)`
       : "Sem fonte";
-  const salesSourceSummary = analytics.dataSources.csvSalesRows > 0
-    ? `CSV (${analytics.dataSources.csvSalesRows} linhas)`
+  const salesSourceSummary = analytics.dataSources.csvDailyRows > 0
+    ? `CSV diario (${analytics.dataSources.csvDailyRows} linhas)`
     : analytics.dataSources.webhookSalesEvents > 0
       ? `Webhook (${analytics.dataSources.webhookSalesEvents} eventos)`
       : "Sem fonte";
@@ -612,6 +635,52 @@ export function ProjectWorkspace({
     }
   }
 
+  async function syncGoogleForm(googleFormId?: string) {
+    setFormsOperation("syncing");
+    setFormsMessage("");
+
+    if (demoMode) {
+      await new Promise((resolve) => setTimeout(resolve, 450));
+      setFormsOperation("idle");
+      setFormsMessage("Sincronizacao demonstrativa concluida.");
+      return;
+    }
+
+    const payload = googleFormId
+      ? { googleFormId, fullSync: false }
+      : {
+          connectionId: googleConnectionId,
+          formUrl: googleFormUrl.trim(),
+          fullSync: true,
+        };
+
+    try {
+      const response = await fetch(`/api/projects/${project.id}/forms/sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const body = (await response.json().catch(() => null)) as
+        | { data?: { title?: string; processed?: number }; error?: string }
+        | null;
+      if (!response.ok) {
+        setFormsMessage(body?.error ?? "Nao foi possivel sincronizar o formulario.");
+        setFormsOperation("idle");
+        return;
+      }
+
+      setGoogleFormUrl("");
+      setFormsMessage(
+        `${body?.data?.title ?? "Formulario"}: ${body?.data?.processed ?? 0} resposta(s) processada(s).`,
+      );
+      setFormsOperation("idle");
+      startTransition(() => router.refresh());
+    } catch {
+      setFormsOperation("idle");
+      setFormsMessage("Falha de rede ao sincronizar o formulario.");
+    }
+  }
+
   return (
     <div className="space-y-6">
       <header className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
@@ -634,6 +703,9 @@ export function ProjectWorkspace({
           {[
             ["overview", "Resumo"],
             ["metrics", "Metricas"],
+            ["forms", "Formularios"],
+            ["leads", "Leads"],
+            ["utms", "UTMs"],
             ["products", "Produtos"],
             ["settings", "Configuracoes"],
           ].map(([key, label]) => (
@@ -780,6 +852,246 @@ export function ProjectWorkspace({
               </p>
             )}
           </>
+      )}
+
+      {tab === "forms" && (
+        <div className="space-y-5">
+          {initialForms.warning && (
+            <p className="rounded-xl bg-amber-50 px-4 py-3 text-xs font-medium text-amber-950">
+              {initialForms.warning}
+            </p>
+          )}
+          {formsMessage && (
+            <p className="rounded-xl bg-blue-50 px-4 py-3 text-xs font-medium text-blue-950">
+              {formsMessage}
+            </p>
+          )}
+
+          <section className="panel rounded-[24px] p-6">
+            <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="eyebrow">Google Forms</p>
+                <h2 className="mt-2 text-2xl font-black tracking-[-0.04em]">
+                  Vincular formulario
+                </h2>
+                <p className="mt-2 max-w-2xl text-xs leading-5 text-[var(--muted)]">
+                  Informe a URL do Google Form. A sincronizacao inicial busca perguntas,
+                  respostas, contatos e UTMs.
+                </p>
+              </div>
+              {!googleConnections.length && !demoMode && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    window.location.href = "/api/connections/google/authorize";
+                  }}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-[var(--ink)] px-4 py-2.5 text-xs font-bold text-white"
+                >
+                  <KeyRound size={14} /> Conectar Google
+                </button>
+              )}
+            </div>
+
+            <div className="grid gap-3 rounded-2xl bg-black/[0.035] p-4 lg:grid-cols-[220px_1fr_auto]">
+              <select
+                className="field"
+                value={googleConnectionId}
+                onChange={(event) => setGoogleConnectionId(event.target.value)}
+                disabled={!googleConnections.length || demoMode}
+              >
+                <option value="">Sem conexao Google</option>
+                {googleConnections.map((connection) => (
+                  <option key={connection.id} value={connection.id}>
+                    {connection.name}
+                  </option>
+                ))}
+              </select>
+              <input
+                className="field"
+                value={googleFormUrl}
+                onChange={(event) => setGoogleFormUrl(event.target.value)}
+                placeholder="https://docs.google.com/forms/d/..."
+              />
+              <button
+                type="button"
+                onClick={() => syncGoogleForm()}
+                disabled={
+                  formsOperation !== "idle" ||
+                  (!demoMode && (!googleConnectionId || !googleFormUrl.trim()))
+                }
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[var(--ink)] px-4 text-xs font-bold text-white disabled:opacity-40"
+              >
+                {formsOperation === "syncing" ? (
+                  <LoaderCircle size={14} className="animate-spin" />
+                ) : (
+                  <RefreshCw size={14} />
+                )}
+                Sincronizar
+              </button>
+            </div>
+          </section>
+
+          <section className="grid gap-4 xl:grid-cols-2">
+            {initialForms.forms.map((form) => (
+              <article key={form.id} className="panel rounded-[24px] p-6">
+                <div className="mb-5 flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted)]">
+                      Versao {form.schemaVersion}
+                    </p>
+                    <h3 className="mt-2 text-lg font-black tracking-[-0.03em]">
+                      {form.title}
+                    </h3>
+                    <p className="mt-1 break-all text-[10px] text-[var(--muted)]">
+                      {form.externalFormId}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => syncGoogleForm(form.id)}
+                    disabled={formsOperation !== "idle"}
+                    className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-[var(--line)] px-3 py-2 text-[10px] font-bold disabled:opacity-40"
+                  >
+                    {formsOperation === "syncing" ? (
+                      <LoaderCircle size={13} className="animate-spin" />
+                    ) : (
+                      <RefreshCw size={13} />
+                    )}
+                    Atualizar
+                  </button>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  {[
+                    ["Respostas", form.totalResponses],
+                    ["Leads unicos", form.uniqueRespondents],
+                    ["Nao resolvidas", form.unresolvedResponses + form.conflictResponses],
+                  ].map(([label, value]) => (
+                    <div key={label} className="rounded-2xl bg-black/[0.035] p-4">
+                      <p className="text-[9px] font-bold uppercase tracking-wider text-[var(--muted)]">
+                        {label}
+                      </p>
+                      <p className="mt-2 text-2xl font-black">{formatNumber(Number(value))}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-5 space-y-2 border-t border-[var(--line)] pt-4 text-xs">
+                  <div className="flex justify-between gap-4">
+                    <span className="text-[var(--muted)]">Ultima resposta</span>
+                    <span className="font-bold">{formatDateTime(form.latestResponseAt)}</span>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <span className="text-[var(--muted)]">Ultima sincronizacao</span>
+                    <span className="font-bold">{formatDateTime(form.lastSyncedAt)}</span>
+                  </div>
+                  {form.lastError && (
+                    <p className="rounded-xl bg-red-50 px-3 py-2 text-[11px] text-red-800">
+                      {form.lastError}
+                    </p>
+                  )}
+                </div>
+              </article>
+            ))}
+            {!initialForms.forms.length && (
+              <p className="rounded-[24px] border border-dashed border-[var(--line)] p-8 text-sm text-[var(--muted)]">
+                Nenhum formulario vinculado a este projeto ainda.
+              </p>
+            )}
+          </section>
+        </div>
+      )}
+
+      {tab === "leads" && (
+        <section className="panel rounded-[24px] p-6">
+          <div className="mb-6">
+            <p className="eyebrow">Contatos</p>
+            <h2 className="mt-2 text-2xl font-black tracking-[-0.04em]">
+              Leads identificados
+            </h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[720px] text-left text-xs">
+              <thead className="text-[10px] uppercase tracking-wider text-[var(--muted)]">
+                <tr>
+                  <th className="border-b border-[var(--line)] px-3 py-3">Nome</th>
+                  <th className="border-b border-[var(--line)] px-3 py-3">E-mail</th>
+                  <th className="border-b border-[var(--line)] px-3 py-3">Telefone</th>
+                  <th className="border-b border-[var(--line)] px-3 py-3">Fonte</th>
+                  <th className="border-b border-[var(--line)] px-3 py-3">Ultimo contato</th>
+                </tr>
+              </thead>
+              <tbody>
+                {initialForms.contacts.map((contact) => (
+                  <tr key={contact.id}>
+                    <td className="border-b border-[var(--line)] px-3 py-3 font-bold">
+                      {contact.name ?? "Sem nome"}
+                    </td>
+                    <td className="border-b border-[var(--line)] px-3 py-3">
+                      {contact.email ?? "-"}
+                    </td>
+                    <td className="border-b border-[var(--line)] px-3 py-3">
+                      {contact.phone ?? "-"}
+                    </td>
+                    <td className="border-b border-[var(--line)] px-3 py-3">
+                      {contact.source ?? "-"}
+                    </td>
+                    <td className="border-b border-[var(--line)] px-3 py-3">
+                      {formatDateTime(contact.lastSeenAt)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {!initialForms.contacts.length && (
+            <p className="mt-4 rounded-2xl border border-dashed border-[var(--line)] p-6 text-sm text-[var(--muted)]">
+              Os leads aparecem aqui depois da primeira sincronizacao de respostas.
+            </p>
+          )}
+        </section>
+      )}
+
+      {tab === "utms" && (
+        <section className="panel rounded-[24px] p-6">
+          <div className="mb-6">
+            <p className="eyebrow">Origem de leads</p>
+            <h2 className="mt-2 text-2xl font-black tracking-[-0.04em]">
+              Campanhas UTM
+            </h2>
+          </div>
+          <div className="grid gap-3 xl:grid-cols-2">
+            {initialForms.utms.map((utm) => (
+              <article key={utm.id} className="rounded-2xl border border-[var(--line)] bg-white/45 p-5">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted)]">
+                  {utm.source ?? "sem source"} / {utm.medium ?? "sem medium"}
+                </p>
+                <h3 className="mt-2 text-lg font-black tracking-[-0.03em]">
+                  {utm.campaign ?? "Campanha sem nome"}
+                </h3>
+                <div className="mt-5 grid grid-cols-3 gap-3 text-xs">
+                  <div>
+                    <span className="block text-[var(--muted)]">Leads</span>
+                    <strong className="mt-1 block text-lg">{formatNumber(utm.contacts)}</strong>
+                  </div>
+                  <div>
+                    <span className="block text-[var(--muted)]">Respostas</span>
+                    <strong className="mt-1 block text-lg">{formatNumber(utm.responses)}</strong>
+                  </div>
+                  <div>
+                    <span className="block text-[var(--muted)]">Ultimo toque</span>
+                    <strong className="mt-1 block text-[11px]">
+                      {formatDateTime(utm.latestTouchAt)}
+                    </strong>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+          {!initialForms.utms.length && (
+            <p className="rounded-2xl border border-dashed border-[var(--line)] p-6 text-sm text-[var(--muted)]">
+              UTMs aparecem quando as respostas trouxerem campos de origem/campanha.
+            </p>
+          )}
+        </section>
       )}
 
       {tab === "products" && (

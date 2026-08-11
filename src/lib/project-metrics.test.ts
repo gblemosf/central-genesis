@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ProjectDailyMetric } from "@/lib/domain";
 import {
+  aggregateProjectDailyMetrics,
   calculateDailyPerformance,
   calculateFinancialSummary,
   calculateProjectionScenario,
@@ -53,6 +54,8 @@ describe("project metrics", () => {
     expect(result.trackedRevenue).toBe(97.32);
     expect(result.coreRoas).toBeCloseTo(0.19, 2);
     expect(result.generalRoas).toBeCloseTo(0.29, 2);
+    expect(result.cpa).toBeCloseTo(84.89, 2);
+    expect(result.arpu).toBeCloseTo(24.33, 2);
     expect(result.checkoutConversion).toBeCloseTo(75, 2);
   });
 
@@ -85,5 +88,49 @@ describe("project metrics", () => {
     expect(result.formationRevenue).toBeCloseTo(23_216.74, 2);
     expect(result.plannedCost).toBeCloseTo(7_969.5, 2);
     expect(result.roas).toBeCloseTo(3.26, 2);
+  });
+
+  it("marca divisoes impossiveis como indisponiveis", () => {
+    const result = calculateDailyPerformance({
+      ...dailyMetric,
+      investment: 0,
+      impressions: 0,
+      clicks: 0,
+      pageViews: 0,
+      checkouts: 0,
+      coreSales: 0,
+      revenue: 0,
+      productMetrics: [],
+    }, 13.85);
+
+    expect(result).toMatchObject({
+      ctr: null,
+      connectRate: null,
+      landingPageConversion: null,
+      checkoutConversion: null,
+      cpa: null,
+      arpu: null,
+      coreRoas: null,
+      generalRoas: null,
+    });
+  });
+
+  it("agrega os tres order bumps da linha diaria", () => {
+    const first = {
+      ...dailyMetric,
+      csvDaily: { core: 4, ob1: 2, ob2: 1, ob3: 0 },
+    };
+    const second = {
+      ...dailyMetric,
+      date: "2026-07-27",
+      csvDaily: { core: 3, ob1: 1, ob2: 0, ob3: 0 },
+    };
+
+    expect(aggregateProjectDailyMetrics([first, second]).csvDaily).toEqual({
+      core: 7,
+      ob1: 3,
+      ob2: 1,
+      ob3: 0,
+    });
   });
 });

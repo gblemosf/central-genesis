@@ -22,12 +22,15 @@ export function percentage(part: number, total: number) {
   return total > 0 ? (part / total) * 100 : 0;
 }
 
+function ratioPercentage(part: number, total: number) {
+  return total > 0 ? (part / total) * 100 : null;
+}
+
 export function defaultProjectMetricConfig(today: string): ProjectMetricConfig {
   return {
     periodStart: `${today.slice(0, 7)}-01`,
     periodEnd: today,
     trafficFeePercent: 13.85,
-    plannedTrafficInvestment: 0,
     manychatCost: 0,
     companyCosts: 0,
     otherCosts: 0,
@@ -48,6 +51,9 @@ export function defaultProjectMetricConfig(today: string): ProjectMetricConfig {
     captureLeads: 0,
     captureTarget: 0,
     ticketNetPrice: 0,
+    orderBump1NetPrice: 0,
+    orderBump2NetPrice: 0,
+    orderBump3NetPrice: 0,
     formationNetPrice: 0,
     ticketProductId: null,
     formationProductId: null,
@@ -80,7 +86,6 @@ export function normalizeProjectMetricConfig(
     periodStart: validPeriod ? periodStart : defaults.periodStart,
     periodEnd: validPeriod ? periodEnd : defaults.periodEnd,
     trafficFeePercent: finiteNumber(input.trafficFeePercent, defaults.trafficFeePercent),
-    plannedTrafficInvestment: finiteNumber(input.plannedTrafficInvestment),
     manychatCost: finiteNumber(input.manychatCost),
     companyCosts: finiteNumber(input.companyCosts),
     otherCosts: finiteNumber(input.otherCosts),
@@ -104,6 +109,9 @@ export function normalizeProjectMetricConfig(
     captureLeads: finiteNumber(input.captureLeads),
     captureTarget: finiteNumber(input.captureTarget),
     ticketNetPrice: finiteNumber(input.ticketNetPrice),
+    orderBump1NetPrice: finiteNumber(input.orderBump1NetPrice),
+    orderBump2NetPrice: finiteNumber(input.orderBump2NetPrice),
+    orderBump3NetPrice: finiteNumber(input.orderBump3NetPrice),
     formationNetPrice: finiteNumber(input.formationNetPrice),
     ticketProductId: optionalString(input.ticketProductId),
     formationProductId: optionalString(input.formationProductId),
@@ -128,20 +136,31 @@ export function calculateDailyPerformance(
   const coreRevenue = coreProducts.reduce((sum, product) => sum + product.revenue, 0);
   const trackedRevenue = metric.revenue;
   const finalInvestment = metric.investment * (1 + trafficFeePercent / 100);
+  const coreRevenueAvailable = coreSales === 0 || coreRevenue !== 0;
+  const hasTrackedSales = coreSales > 0 || orderBumps.some((product) => product.quantity > 0);
+  const trackedRevenueAvailable = !hasTrackedSales || trackedRevenue !== 0;
 
   return {
     ...metric,
     coreSales,
     coreRevenue,
+    coreRevenueAvailable,
     orderBumps,
     trackedRevenue,
+    trackedRevenueAvailable,
     finalInvestment,
-    ctr: percentage(metric.clicks, metric.impressions),
-    connectRate: percentage(metric.pageViews, metric.clicks),
-    landingPageConversion: percentage(metric.checkouts, metric.pageViews),
-    checkoutConversion: percentage(coreSales, metric.checkouts),
-    coreRoas: finalInvestment > 0 ? coreRevenue / finalInvestment : 0,
-    generalRoas: finalInvestment > 0 ? trackedRevenue / finalInvestment : 0,
+    ctr: ratioPercentage(metric.clicks, metric.impressions),
+    connectRate: ratioPercentage(metric.pageViews, metric.clicks),
+    landingPageConversion: ratioPercentage(metric.checkouts, metric.pageViews),
+    checkoutConversion: ratioPercentage(coreSales, metric.checkouts),
+    cpa: coreSales > 0 ? finalInvestment / coreSales : null,
+    arpu: coreSales > 0 && trackedRevenueAvailable ? trackedRevenue / coreSales : null,
+    coreRoas: finalInvestment > 0 && coreRevenueAvailable
+      ? coreRevenue / finalInvestment
+      : null,
+    generalRoas: finalInvestment > 0 && trackedRevenueAvailable
+      ? trackedRevenue / finalInvestment
+      : null,
   };
 }
 
@@ -172,6 +191,14 @@ export function aggregateProjectDailyMetrics(rows: ProjectDailyMetric[]): Projec
     checkouts: rows.reduce((sum, row) => sum + row.checkouts, 0),
     coreSales: rows.reduce((sum, row) => sum + row.coreSales, 0),
     productMetrics: Array.from(products.values()),
+    csvDaily: rows.some((row) => row.csvDaily)
+      ? {
+          core: rows.reduce((sum, row) => sum + (row.csvDaily?.core ?? 0), 0),
+          ob1: rows.reduce((sum, row) => sum + (row.csvDaily?.ob1 ?? 0), 0),
+          ob2: rows.reduce((sum, row) => sum + (row.csvDaily?.ob2 ?? 0), 0),
+          ob3: rows.reduce((sum, row) => sum + (row.csvDaily?.ob3 ?? 0), 0),
+        }
+      : undefined,
   };
 }
 
@@ -221,14 +248,15 @@ export function calculateProjectionScenario(
   const ticketRevenue = ticketSales * ticketPrice;
   const formationRevenue = formationSales * formationPrice;
   const revenue = ticketRevenue + formationRevenue;
-  const dividedMediaBudget =
-    config.ticketBudget + config.remarketingBudget + config.distributionBudget;
-  const mediaBudget = Math.max(dividedMediaBudget, config.plannedTrafficInvestment);
-  const automationBudget = Math.max(config.apiBudget, config.manychatCost);
+  const mediaBudget =
+    config.ticketBudget +
+    config.apiBudget +
+    config.remarketingBudget +
+    config.distributionBudget;
   const finalMediaInvestment = mediaBudget * (1 + config.trafficFeePercent / 100);
   const plannedCost =
     finalMediaInvestment +
-    automationBudget +
+    config.manychatCost +
     config.companyCosts +
     config.otherCosts;
 

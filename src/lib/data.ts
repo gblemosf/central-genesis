@@ -8,6 +8,7 @@ import type {
   ProjectAnalytics,
   ProjectCatalog,
   ProjectDailyMetric,
+  ProjectFormsData,
   ProjectSummary,
   SalesConnectionOption,
 } from "@/lib/domain";
@@ -48,6 +49,20 @@ interface LegacySalesRow {
   fat_liquido: number | string | null;
 }
 
+interface NormalizedCsvDailyRow {
+  project_id: string;
+  metric_date: string;
+  investment: number | string;
+  impressions: number | string;
+  clicks: number | string;
+  page_views: number | string;
+  checkouts: number | string;
+  core_sales: number | string;
+  order_bump_1_sales: number | string;
+  order_bump_2_sales: number | string;
+  order_bump_3_sales: number | string;
+}
+
 interface ProductMapRow {
   projeto: string;
 }
@@ -83,6 +98,16 @@ export interface AppData<T> {
 
 const numberValue = (value: number | string | null | undefined) =>
   Number.parseFloat(String(value ?? 0)) || 0;
+
+function normalizedCsvRevenue(
+  row: NormalizedCsvDailyRow,
+  config: ReturnType<typeof normalizeProjectMetricConfig>,
+) {
+  return numberValue(row.core_sales) * config.ticketNetPrice +
+    numberValue(row.order_bump_1_sales) * config.orderBump1NetPrice +
+    numberValue(row.order_bump_2_sales) * config.orderBump2NetPrice +
+    numberValue(row.order_bump_3_sales) * config.orderBump3NetPrice;
+}
 
 function aggregateLegacyData(
   trafficRows: LegacyTrafficRow[],
@@ -188,7 +213,7 @@ export async function getProjects(): Promise<AppData<ProjectSummary[]>> {
   const { data: normalizedProjects, error: normalizedError } = await supabase
     .from("projects")
     .select(
-      "id,name,slug,status,color,monthly_revenue_target,margin_target,expert_id,deleted_at,experts(name)",
+      "id,name,slug,status,color,monthly_revenue_target,margin_target,expert_id,deleted_at,settings,experts(name)",
     )
     .order("created_at", { ascending: true });
 
@@ -233,7 +258,7 @@ export async function getProjects(): Promise<AppData<ProjectSummary[]>> {
 
   if (activeNormalizedProjects.length) {
     const projectIds = activeNormalizedProjects.map((project) => project.id);
-    const [metrics, mappings] = await Promise.all([
+    const [metrics, mappings, csvDaily] = await Promise.all([
       supabase
         .from("project_daily_metrics")
         .select(
@@ -247,13 +272,18 @@ export async function getProjects(): Promise<AppData<ProjectSummary[]>> {
         .select("project_id")
         .in("project_id", projectIds)
         .is("effective_to", null),
+      supabase
+        .from("project_csv_daily_metrics")
+        .select("project_id,metric_date,investment,impressions,clicks,page_views,checkouts,core_sales,order_bump_1_sales,order_bump_2_sales,order_bump_3_sales")
+        .in("project_id", projectIds)
+        .gte("metric_date", reportingStartDate),
     ]);
 
-    if (metrics.error || mappings.error) {
+    if (metrics.error || mappings.error || csvDaily.error) {
       return {
         data: [],
         source: "live",
-        warning: `Falha ao carregar indicadores: ${metrics.error?.message ?? mappings.error?.message}`,
+        warning: `Falha ao carregar indicadores: ${metrics.error?.message ?? mappings.error?.message ?? csvDaily.error?.message}`,
       };
     }
 
@@ -287,6 +317,26 @@ export async function getProjects(): Promise<AppData<ProjectSummary[]>> {
           metric.coreSales += numberValue(row.core_sales);
         });
 
+      const projectSettings = project.settings !== null &&
+          typeof project.settings === "object" && !Array.isArray(project.settings)
+        ? project.settings as Record<string, unknown>
+        : {};
+      const projectConfig = normalizeProjectMetricConfig(
+        projectSettings.metrics,
+        dateInTimezone(new Date()),
+      );
+      for (const row of (csvDaily.data ?? []) as NormalizedCsvDailyRow[]) {
+        if (row.project_id !== project.id) continue;
+        const metric = metricFor(row.metric_date);
+        metric.investment = numberValue(row.investment);
+        metric.impressions = numberValue(row.impressions);
+        metric.clicks = numberValue(row.clicks);
+        metric.pageViews = numberValue(row.page_views);
+        metric.checkouts = numberValue(row.checkouts);
+        metric.coreSales = numberValue(row.core_sales);
+        metric.revenue = normalizedCsvRevenue(row, projectConfig);
+      }
+
       const legacyProject = legacyProjectSummaries.find(
         (item) => item.id === project.slug,
       );
@@ -304,6 +354,19 @@ export async function getProjects(): Promise<AppData<ProjectSummary[]>> {
         const metric = metricFor(row.date);
         metric.revenue = numberValue(row.fat_liquido);
         metric.coreSales = numberValue(row.core);
+      }
+      // Normalized imports are authoritative when an upgraded project still has
+      // legacy rows for the same slug and date.
+      for (const row of (csvDaily.data ?? []) as NormalizedCsvDailyRow[]) {
+        if (row.project_id !== project.id) continue;
+        const metric = metricFor(row.metric_date);
+        metric.investment = numberValue(row.investment);
+        metric.impressions = numberValue(row.impressions);
+        metric.clicks = numberValue(row.clicks);
+        metric.pageViews = numberValue(row.page_views);
+        metric.checkouts = numberValue(row.checkouts);
+        metric.coreSales = numberValue(row.core_sales);
+        metric.revenue = normalizedCsvRevenue(row, projectConfig);
       }
       const dailyMetrics = Array.from(dates.values()).sort((a, b) =>
         a.date.localeCompare(b.date),
@@ -530,8 +593,7 @@ export async function getProjectAnalytics(
       config: defaultProjectMetricConfig(today),
       configSaved: true,
       dataSources: {
-        csvTrafficRows: 0,
-        csvSalesRows: 0,
+        csvDailyRows: 0,
         metaTrafficRows: dailyMetrics.length,
         webhookSalesEvents: dailyMetrics.filter(
           (metric) => metric.revenue !== 0 || metric.coreSales !== 0,
@@ -552,8 +614,7 @@ export async function getProjectAnalytics(
       config: defaultProjectMetricConfig(today),
       configSaved: false,
       dataSources: {
-        csvTrafficRows: 0,
-        csvSalesRows: 0,
+        csvDailyRows: 0,
         metaTrafficRows: 0,
         webhookSalesEvents: 0,
       },
@@ -626,6 +687,8 @@ export async function getProjectAnalytics(
     metaTrafficCount,
     sales,
     webhookSalesCount,
+    normalizedCsvDaily,
+    normalizedCsvDailyCount,
     legacyTraffic,
     legacyTrafficCount,
     legacySales,
@@ -657,6 +720,19 @@ export async function getProjectAnalytics(
         "PURCHASE_COMPLETED",
         "PURCHASE_REFUNDED",
       ]),
+    supabase
+      .from("project_csv_daily_metrics")
+      .select("project_id,metric_date,investment,impressions,clicks,page_views,checkouts,core_sales,order_bump_1_sales,order_bump_2_sales,order_bump_3_sales")
+      .eq("organization_id", project.organization_id)
+      .eq("project_id", projectId)
+      .gte("metric_date", config.periodStart)
+      .lte("metric_date", config.periodEnd)
+      .order("metric_date"),
+    supabase
+      .from("project_csv_daily_metrics")
+      .select("metric_date", { count: "exact", head: true })
+      .eq("organization_id", project.organization_id)
+      .eq("project_id", projectId),
     supabase
       .from("metricas_trafego")
       .select("projeto,date,invest,impressions,clicks,pageviews,checkouts")
@@ -740,6 +816,72 @@ export async function getProjectAnalytics(
     rows.set(date, metric);
     return metric;
   };
+  const stageById = new Map(catalog.stages.map((stage) => [stage.id, stage]));
+  const mappedProducts = catalog.products.filter(
+    (product) => product.mappedProjectId === projectId && product.stageId && !product.archivedAt,
+  );
+  const coreProduct = mappedProducts.find((product) => product.id === config.ticketProductId) ??
+    mappedProducts.find((product) =>
+      ["core", "front_end", "low_ticket"].includes(
+        stageById.get(product.stageId ?? "")?.type ?? "",
+      )
+    );
+  const orderBumpProducts = mappedProducts
+    .filter((product) => stageById.get(product.stageId ?? "")?.type === "order_bump")
+    .sort((a, b) =>
+      (stageById.get(a.stageId ?? "")?.position ?? 0) -
+        (stageById.get(b.stageId ?? "")?.position ?? 0) ||
+      a.name.localeCompare(b.name)
+    )
+    .slice(0, 3);
+  const orderBumpPrices = [
+    config.orderBump1NetPrice,
+    config.orderBump2NetPrice,
+    config.orderBump3NetPrice,
+  ];
+  const normalizedCsvDates = new Set(
+    ((normalizedCsvDaily.data ?? []) as NormalizedCsvDailyRow[]).map((row) => row.metric_date),
+  );
+  const applyNormalizedCsv = (row: NormalizedCsvDailyRow) => {
+    const metric = metricFor(row.metric_date);
+    const quantities = [
+      numberValue(row.order_bump_1_sales),
+      numberValue(row.order_bump_2_sales),
+      numberValue(row.order_bump_3_sales),
+    ];
+    const corePrice = config.ticketNetPrice;
+    metric.investment = numberValue(row.investment);
+    metric.impressions = numberValue(row.impressions);
+    metric.clicks = numberValue(row.clicks);
+    metric.pageViews = numberValue(row.page_views);
+    metric.checkouts = numberValue(row.checkouts);
+    metric.coreSales = numberValue(row.core_sales);
+    metric.csvDaily = {
+      core: metric.coreSales,
+      ob1: quantities[0],
+      ob2: quantities[1],
+      ob3: quantities[2],
+    };
+    metric.productMetrics = [
+      {
+        productId: coreProduct?.id ?? "csv-core",
+        stageId: coreProduct?.stageId ?? "csv-stage-core",
+        productName: coreProduct?.name ?? "Core",
+        stageType: "core",
+        quantity: metric.coreSales,
+        revenue: metric.coreSales * corePrice,
+      },
+      ...quantities.map((quantity, index) => ({
+        productId: orderBumpProducts[index]?.id ?? `csv-ob-${index + 1}`,
+        stageId: orderBumpProducts[index]?.stageId ?? `csv-stage-ob-${index + 1}`,
+        productName: orderBumpProducts[index]?.name ?? `OB${index + 1}`,
+        stageType: "order_bump" as const,
+        quantity,
+        revenue: quantity * orderBumpPrices[index],
+      })),
+    ];
+    metric.revenue = metric.productMetrics.reduce((sum, product) => sum + product.revenue, 0);
+  };
 
   for (const row of metrics.data ?? []) {
     const metric = metricFor(row.metric_date);
@@ -750,6 +892,12 @@ export async function getProjectAnalytics(
     metric.pageViews = numberValue(row.page_views);
     metric.checkouts = numberValue(row.checkouts);
     metric.coreSales = numberValue(row.core_sales);
+  }
+
+  if (!normalizedCsvDaily.error) {
+    for (const row of (normalizedCsvDaily.data ?? []) as NormalizedCsvDailyRow[]) {
+      applyNormalizedCsv(row);
+    }
   }
 
   if (!legacyTraffic.error) {
@@ -767,6 +915,20 @@ export async function getProjectAnalytics(
       const metric = metricFor(row.date);
       metric.revenue = numberValue(row.fat_liquido);
       metric.coreSales = numberValue(row.core);
+      metric.csvDaily = {
+        core: numberValue(row.core),
+        ob1: numberValue(row.ob1),
+        ob2: numberValue(row.ob2),
+        ob3: numberValue(row.ob3),
+      };
+    }
+  }
+
+  // Reapply normalized rows after the compatibility overlay. Existing legacy
+  // history remains visible until a date is superseded by a normalized import.
+  if (!normalizedCsvDaily.error) {
+    for (const row of (normalizedCsvDaily.data ?? []) as NormalizedCsvDailyRow[]) {
+      applyNormalizedCsv(row);
     }
   }
 
@@ -774,6 +936,7 @@ export async function getProjectAnalytics(
   for (const event of sales.data) {
     const eventDate = dateInTimezone(new Date(event.event_at), project.reporting_timezone);
     if (eventDate < config.periodStart || eventDate > config.periodEnd) continue;
+    if (normalizedCsvDates.has(eventDate)) continue;
     const metric = metricFor(eventDate);
 
     for (const item of event.sales_event_items ?? []) {
@@ -809,7 +972,7 @@ export async function getProjectAnalytics(
     }
   }
 
-  if (!legacySales.error && !legacyProducts.error) {
+  if (!legacySales.error) {
     const mappings = new Map(
       ((legacyProducts.data ?? []) as LegacyProductMapRow[]).map((mapping) => [
         mapping.campo.toLowerCase(),
@@ -829,7 +992,8 @@ export async function getProjectAnalytics(
       "ds2",
     ] as const;
 
-    for (const row of (legacySales.data ?? []) as LegacySalesRow[]) {
+    const legacyRows = (legacySales.data ?? []) as LegacySalesRow[];
+    for (const row of legacyRows) {
       const metric = metricFor(row.date);
       if (metric.productMetrics.length) continue;
       for (const field of legacyFields) {
@@ -871,28 +1035,175 @@ export async function getProjectAnalytics(
     cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
 
+  const importHistory = await supabase
+    .from("metric_imports")
+    .select(
+      "id,original_filename,content_sha256,rows_written,period_start,period_end,created_at",
+    )
+    .eq("organization_id", project.organization_id)
+    .eq("project_id", projectId)
+    .eq("status", "succeeded")
+    .order("created_at", { ascending: false })
+    .limit(50);
+
   const warning =
     metrics.error?.message ??
     metaTrafficCount.error?.message ??
     sales.error?.message ??
     webhookSalesCount.error?.message ??
+    normalizedCsvDaily.error?.message ??
+    normalizedCsvDailyCount.error?.message ??
     legacyTraffic.error?.message ??
     legacyTrafficCount.error?.message ??
     legacySales.error?.message ??
     legacySalesCount.error?.message ??
     legacyProducts.error?.message ??
+    importHistory.error?.message ??
     historicalProductsError?.message;
   return {
     config,
     configSaved,
     dataSources: {
-      csvTrafficRows: legacyTrafficCount.count ?? 0,
-      csvSalesRows: legacySalesCount.count ?? 0,
+      csvDailyRows:
+        (normalizedCsvDailyCount.count ?? 0) +
+        Math.max(legacyTrafficCount.count ?? 0, legacySalesCount.count ?? 0),
       metaTrafficRows: metaTrafficCount.count ?? 0,
       webhookSalesEvents: webhookSalesCount.count ?? 0,
     },
     dailyMetrics: Array.from(rows.values()).sort((a, b) => a.date.localeCompare(b.date)),
+    imports: (importHistory.data ?? []).map((item) => ({
+      id: item.id,
+      filename: item.original_filename,
+      sha256: item.content_sha256,
+      rows: Number(item.rows_written),
+      periodStart: item.period_start,
+      periodEnd: item.period_end,
+      importedAt: item.created_at,
+    })),
     ...(warning ? { warning } : {}),
+  };
+}
+
+export async function getProjectFormsData(projectId: string): Promise<ProjectFormsData> {
+  const supabase = await createSupabaseServerClient();
+  const empty: ProjectFormsData = {
+    connections: [],
+    forms: [],
+    contacts: [],
+    utms: [],
+  };
+  if (!supabase) return empty;
+
+  const { data: project, error: projectError } = await supabase
+    .from("projects")
+    .select("id,organization_id")
+    .eq("id", projectId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (projectError || !project) {
+    return {
+      ...empty,
+      warning: projectError?.message ?? "Projeto nao encontrado para formularios.",
+    };
+  }
+
+  const [connections, forms, analytics, contacts, utms] = await Promise.all([
+    supabase
+      .from("integration_connections")
+      .select("id,name,status")
+      .eq("organization_id", project.organization_id)
+      .eq("provider", "google_forms")
+      .is("revoked_at", null)
+      .order("created_at"),
+    supabase
+      .from("google_forms")
+      .select(
+        "id,title,external_form_id,responder_uri,schema_version,last_synced_at,last_error",
+      )
+      .eq("organization_id", project.organization_id)
+      .eq("project_id", projectId)
+      .is("archived_at", null)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("project_form_analytics")
+      .select(
+        "google_form_id,total_responses,unique_respondents,matched_responses,unresolved_responses,conflict_responses,latest_response_at",
+      )
+      .eq("organization_id", project.organization_id)
+      .eq("project_id", projectId),
+    supabase
+      .from("contacts")
+      .select("id,name,email,phone,source,last_seen_at,created_at")
+      .eq("organization_id", project.organization_id)
+      .eq("project_id", projectId)
+      .is("archived_at", null)
+      .order("last_seen_at", { ascending: false })
+      .limit(100),
+    supabase
+      .from("project_utm_analytics")
+      .select(
+        "utm_campaign_id,utm_source,utm_medium,utm_campaign,contacts,responses,latest_touch_at",
+      )
+      .eq("organization_id", project.organization_id)
+      .eq("project_id", projectId)
+      .order("latest_touch_at", { ascending: false, nullsFirst: false })
+      .limit(100),
+  ]);
+
+  const warning =
+    connections.error?.message ??
+    forms.error?.message ??
+    analytics.error?.message ??
+    contacts.error?.message ??
+    utms.error?.message;
+  if (warning) return { ...empty, warning };
+
+  const analyticsByForm = new Map(
+    (analytics.data ?? []).map((row) => [row.google_form_id, row]),
+  );
+
+  return {
+    connections: (connections.data ?? []).map((connection) => ({
+      id: connection.id,
+      name: connection.name,
+      status: connection.status,
+    })),
+    forms: (forms.data ?? []).map((form) => {
+      const formAnalytics = analyticsByForm.get(form.id);
+      return {
+        id: form.id,
+        title: form.title,
+        externalFormId: form.external_form_id,
+        responderUri: form.responder_uri,
+        schemaVersion: Number(form.schema_version ?? 0),
+        totalResponses: Number(formAnalytics?.total_responses ?? 0),
+        uniqueRespondents: Number(formAnalytics?.unique_respondents ?? 0),
+        matchedResponses: Number(formAnalytics?.matched_responses ?? 0),
+        unresolvedResponses: Number(formAnalytics?.unresolved_responses ?? 0),
+        conflictResponses: Number(formAnalytics?.conflict_responses ?? 0),
+        latestResponseAt: formAnalytics?.latest_response_at ?? null,
+        lastSyncedAt: form.last_synced_at,
+        lastError: form.last_error,
+      };
+    }),
+    contacts: (contacts.data ?? []).map((contact) => ({
+      id: contact.id,
+      name: contact.name,
+      email: contact.email,
+      phone: contact.phone,
+      source: contact.source,
+      lastSeenAt: contact.last_seen_at,
+      createdAt: contact.created_at,
+    })),
+    utms: (utms.data ?? []).map((utm) => ({
+      id: utm.utm_campaign_id,
+      source: utm.utm_source,
+      medium: utm.utm_medium,
+      campaign: utm.utm_campaign,
+      contacts: Number(utm.contacts ?? 0),
+      responses: Number(utm.responses ?? 0),
+      latestTouchAt: utm.latest_touch_at,
+    })),
   };
 }
 

@@ -7,6 +7,12 @@ project_id = "central-gestao-genesis"
 [functions.hubla-webhook]
 verify_jwt = false
 
+[functions.fetch-meta-data]
+verify_jwt = false
+
+[functions.hotmart-webhook]
+verify_jwt = false
+
 [api]
 enabled = true
 # Port to use for the API URL.

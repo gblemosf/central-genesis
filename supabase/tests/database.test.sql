@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(109);
+select plan(125);
 
 insert into auth.users (
   id, instance_id, aud, role, email, encrypted_password,
@@ -222,7 +222,6 @@ select is(
   1::numeric,
   'daily metrics count core items'
 );
-
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000001';
 select lives_ok(
@@ -373,7 +372,8 @@ select ok(
   'transaction retry is reported as duplicate'
 );
 select is(
-  (select net_amount from public.sales_events where external_transaction_id = 'txn-1'),
+  (select net_amount from public.sales_events where external_transaction_id = 'txn-1'
+    and event_type in ('PURCHASE_APPROVED', 'PURCHASE_COMPLETED')),
   95::numeric,
   'completed event refreshes the canonical financial values'
 );
@@ -387,7 +387,8 @@ select ok(
   'late approved retry is reported as duplicate'
 );
 select is(
-  (select net_amount from public.sales_events where external_transaction_id = 'txn-1'),
+  (select net_amount from public.sales_events where external_transaction_id = 'txn-1'
+    and event_type in ('PURCHASE_APPROVED', 'PURCHASE_COMPLETED')),
   95::numeric,
   'late approved retry cannot regress completed financial values'
 );
@@ -461,6 +462,32 @@ select is(
   ),
   'core'::public.funnel_stage_type,
   'delayed webhook keeps the funnel type captured by the historical mapping'
+);
+select lives_ok(
+  $$select public.ingest_hotmart_refund(
+    (select id from public.integration_connections where name = 'Hotmart Principal'),
+    'evt-refund-1', 'txn-1', '2026-07-27T13:00:00Z',
+    100, 95, 'BRL', '{"product_external_id":"product-1"}'::jsonb
+  )$$,
+  'Hotmart refund reverses the canonical transaction'
+);
+select is(
+  (select revenue from public.project_daily_metrics where metric_date = '2026-07-27'),
+  0::numeric,
+  'Hotmart refund is deducted from daily revenue'
+);
+select is(
+  (select core_sales from public.project_daily_metrics where metric_date = '2026-07-27'),
+  0::numeric,
+  'Hotmart refund reverses the core item count'
+);
+select ok(
+  (select duplicate from public.ingest_hotmart_refund(
+    (select id from public.integration_connections where name = 'Hotmart Principal'),
+    'evt-refund-1', 'txn-1', '2026-07-27T13:00:00Z',
+    100, 95, 'BRL', '{"product_external_id":"product-1"}'::jsonb
+  )),
+  'Hotmart refund retries are idempotent'
 );
 select lives_ok(
   $$select public.replace_meta_metrics(
@@ -628,6 +655,16 @@ select ok(
   )),
   'Hubla idempotency key prevents duplicate sales'
 );
+select ok(
+  (select duplicate from public.ingest_hubla_webhook(
+    (select id from public.integration_connections where name = 'Hubla Principal'),
+    'hubla-sale-2-retry', 'invoice.payment_succeeded', '2.0.0',
+    '2026-08-02T12:00:01Z', 'invoice-2', 2,
+    'hubla-product-1', 'Produto Hubla', 100, 90, 'BRL', false,
+    '{"type":"invoice.payment_succeeded"}'::jsonb
+  )),
+  'Hubla transaction identity prevents a duplicate with a new delivery key'
+);
 update public.product_mappings
 set effective_to = '2026-08-02T12:30:00Z'
 where product_id = (select id from public.products where external_id = 'hubla-product-1')
@@ -699,31 +736,126 @@ reset role;
 
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000001';
-select lives_ok(
-  $$select public.import_project_csv_metrics(
+select ok(
+  not has_function_privilege(
+    'authenticated',
+    'public.import_project_csv_metrics(uuid,uuid,jsonb,jsonb,date,date)',
+    'EXECUTE'
+  ),
+  'authenticated users cannot call the legacy CSV import path'
+);
+select is(
+  (select count(*) from public.metricas_trafego where projeto = 'projeto-teste'),
+  0::bigint,
+  'the normalized project does not write legacy traffic rows'
+);
+select is(
+  (select count(*) from public.metricas_vendas where projeto = 'projeto-teste'),
+  0::bigint,
+  'the normalized project does not write legacy sales rows'
+);
+select ok(
+  not has_table_privilege('authenticated', 'public.metricas_trafego', 'INSERT')
+    and not has_table_privilege('authenticated', 'public.metricas_vendas', 'UPDATE'),
+  'legacy metric tables are read only for authenticated users'
+);
+select is(
+  public.import_project_daily_metrics(
     (select id from public.organizations where name = 'Genesis'),
     (select id from public.projects where slug = 'projeto-teste'),
-    '[{"date":"2026-08-01","invest":50,"impressions":1000,"clicks":100,"pageviews":80,"checkouts":10}]'::jsonb,
-    '[{"date":"2026-08-01","core":2,"ob1":1,"ob2":0,"ob3":0,"ob4":0,"ob5":0,"up1":0,"up2":0,"ds1":0,"ds2":0,"fat_liquido":120}]'::jsonb,
-    '2026-08-01',
-    '2026-08-01'
-  )$$,
-  'owner imports both CSV metric sets atomically'
+    jsonb_build_object(
+      'id', '10000000-0000-4000-8000-000000000001',
+      'filename', 'metricas-diarias.csv',
+      'storagePath', (select organization_id::text from public.projects where slug = 'projeto-teste')
+        || '/' || (select id::text from public.projects where slug = 'projeto-teste')
+        || '/10000000-0000-4000-8000-000000000001/metricas-diarias.csv',
+      'sha256', repeat('a', 64),
+      'delimiter', ',',
+      'headers', '["date","investment","impressions","clicks","page_views","checkouts","core_sales","order_bump_1_sales","order_bump_2_sales","order_bump_3_sales"]'::jsonb,
+      'rows', '[{"line":2,"raw":{"date":"2026-08-02","investment":"80"},"data":{"date":"2026-08-02","investment":80,"impressions":2000,"clicks":140,"page_views":100,"checkouts":14,"core_sales":3,"order_bump_1_sales":1,"order_bump_2_sales":2,"order_bump_3_sales":0}}]'::jsonb
+    ),
+    '2026-08-02', '2026-08-02'
+  ),
+  '{"id":"10000000-0000-4000-8000-000000000001","duplicate":false,"rowsWritten":1,"periodStart":"2026-08-02","periodEnd":"2026-08-02"}'::jsonb,
+  'owner imports one combined daily CSV atomically'
 );
 select is(
-  (select invest from public.metricas_trafego where projeto = 'projeto-teste' and date = '2026-08-01'),
-  50::numeric,
-  'CSV traffic metric is persisted'
+  (select count(*) from public.metric_imports where project_id = (select id from public.projects where slug = 'projeto-teste')),
+  1::bigint,
+  'the original daily CSV import is recorded once'
+);
+select results_eq(
+  $$select investment, impressions, clicks, page_views, checkouts
+    from public.project_csv_daily_metrics
+    where project_id = (select id from public.projects where slug = 'projeto-teste')
+      and metric_date = '2026-08-02'$$,
+  $$values (80::numeric, 2000::bigint, 140::bigint, 100::bigint, 14::bigint)$$,
+  'combined daily traffic values are persisted'
+);
+select results_eq(
+  $$select core_sales, order_bump_1_sales, order_bump_2_sales, order_bump_3_sales
+    from public.project_csv_daily_metrics
+    where project_id = (select id from public.projects where slug = 'projeto-teste')
+      and metric_date = '2026-08-02'$$,
+  $$values (3::bigint, 1::bigint, 2::bigint, 0::bigint)$$,
+  'combined daily sales values are persisted'
+);
+select ok(
+  (select raw_values = '{"date":"2026-08-02","investment":"80"}'::jsonb
+      and normalized_values = '{"date":"2026-08-02","investment":80,"impressions":2000,"clicks":140,"page_views":100,"checkouts":14,"core_sales":3,"order_bump_1_sales":1,"order_bump_2_sales":2,"order_bump_3_sales":0}'::jsonb
+    from public.metric_import_rows
+    where import_id = '10000000-0000-4000-8000-000000000001'),
+  'raw and normalized row snapshots are retained'
+);
+select ok(
+  exists(select 1 from public.audit_events where action = 'project.metrics_imported'),
+  'normalized import is audited'
 );
 select is(
-  (select core from public.metricas_vendas where projeto = 'projeto-teste' and date = '2026-08-01'),
-  2,
-  'CSV sales metric is persisted'
+  public.import_project_daily_metrics(
+    (select id from public.organizations where name = 'Genesis'),
+    (select id from public.projects where slug = 'projeto-teste'),
+    jsonb_build_object(
+      'id', '10000000-0000-4000-8000-000000000003',
+      'filename', 'metricas-repetidas.csv',
+      'storagePath', (select organization_id::text from public.projects where slug = 'projeto-teste')
+        || '/' || (select id::text from public.projects where slug = 'projeto-teste')
+        || '/10000000-0000-4000-8000-000000000003/metricas-repetidas.csv',
+      'sha256', repeat('a', 64), 'delimiter', ',',
+      'headers', '["date","investment","impressions","clicks","page_views","checkouts","core_sales","order_bump_1_sales","order_bump_2_sales","order_bump_3_sales"]'::jsonb,
+      'rows', '[{"line":2,"raw":{"date":"2026-08-02"},"data":{"date":"2026-08-02","investment":999,"impressions":999,"clicks":999,"page_views":999,"checkouts":999,"core_sales":999,"order_bump_1_sales":999,"order_bump_2_sales":999,"order_bump_3_sales":999}}]'::jsonb
+    ),
+    '2026-08-02', '2026-08-02'
+  ),
+  '{"id":"10000000-0000-4000-8000-000000000001","duplicate":true,"rowsWritten":0,"periodStart":"2026-08-02","periodEnd":"2026-08-02"}'::jsonb,
+  'reimporting the same content returns the original import as a duplicate'
 );
 select is(
-  (select settings #>> '{metrics,periodStart}' from public.projects where slug = 'projeto-teste'),
-  '2026-08-01',
-  'CSV import updates the project reporting period in the same transaction'
+  (select count(*) from public.metric_imports where project_id = (select id from public.projects where slug = 'projeto-teste')),
+  1::bigint,
+  'duplicate file content does not create import history twice'
+);
+select is(
+  (select investment from public.project_csv_daily_metrics where project_id = (select id from public.projects where slug = 'projeto-teste') and metric_date = '2026-08-02'),
+  80::numeric,
+  'duplicate file content does not overwrite current metrics'
+);
+select is(
+  (select count(*) from public.metric_imports where imported_by = '00000000-0000-0000-0000-000000000001'),
+  1::bigint,
+  'the authenticated importer is retained'
+);
+select ok(
+  has_function_privilege(
+    'authenticated', 'public.import_project_daily_metrics(uuid,uuid,jsonb,date,date)', 'EXECUTE'
+  )
+    and not has_function_privilege(
+      'anon', 'public.import_project_daily_metrics(uuid,uuid,jsonb,date,date)', 'EXECUTE'
+    )
+    and not has_function_privilege(
+      'service_role', 'public.import_project_daily_metrics(uuid,uuid,jsonb,date,date)', 'EXECUTE'
+    ),
+  'only authenticated users can reach daily metric import authorization'
 );
 
 reset role;
@@ -746,8 +878,8 @@ select throws_ok(
     '2026-08-01'
   )$$,
   '42501',
-  'admin permission required',
-  'another organization cannot import metrics into a Genesis project'
+  'permission denied for function import_project_csv_metrics',
+  'legacy import remains unavailable to another organization'
 );
 select lives_ok(
   $$select public.create_project_with_defaults(
@@ -757,7 +889,7 @@ select lives_ok(
   )$$,
   'second organization can reuse a project slug'
 );
-select lives_ok(
+select throws_ok(
   $$select public.import_project_csv_metrics(
     (select id from public.organizations where name = 'Other'),
     (select id from public.projects where slug = 'projeto-teste'),
@@ -766,12 +898,14 @@ select lives_ok(
     '2026-08-01',
     '2026-08-01'
   )$$,
-  'different organizations can import the same slug and date without collision'
+  '42501',
+  'permission denied for function import_project_csv_metrics',
+  'new writes cannot use the legacy slug-based metric path'
 );
 select is(
-  (select invest from public.metricas_trafego where projeto = 'projeto-teste' and date = '2026-08-01'),
-  75::numeric,
-  'tenant RLS exposes only the second organization metric after a slug collision'
+  (select count(*) from public.metricas_trafego where projeto = 'projeto-teste'),
+  0::bigint,
+  'legacy metrics remain unchanged after a blocked slug collision'
 );
 
 reset role;
@@ -840,12 +974,12 @@ insert into public.project_costs (
 )
 select organization_id, id, '2026-08-03', 'Custo preservado', 25
 from public.projects where slug = 'projeto-excluido';
+reset role;
 insert into public.metricas_trafego (
   organization_id, projeto, date, invest
 )
 select organization_id, slug, '2026-08-03', 25
 from public.projects where slug = 'projeto-excluido';
-reset role;
 insert into public.integration_connections (
   organization_id, name, provider, status
 )
@@ -939,11 +1073,13 @@ select ok(
   ),
   'soft deletion frees the Meta account for another project'
 );
+reset role;
 insert into public.metricas_vendas (
   organization_id, projeto, date, core, fat_liquido
 )
 select id, 'projeto-legado-excluido', '2026-08-03', 1, 90
 from public.organizations where name = 'Genesis';
+set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000003';
 select throws_ok(
   $$select public.soft_delete_legacy_project(
@@ -983,9 +1119,9 @@ select throws_ok(
     )
     select id, 'projeto-legado-excluido', '2026-08-04', 1, 90
     from public.organizations where name = 'Genesis'$$,
-  'P0002',
-  'project is deleted or unavailable',
-  'legacy soft deletion rejects new metric writes'
+  '42501',
+  'permission denied for table metricas_vendas',
+  'legacy metric writes are unavailable after consolidation'
 );
 select ok(
   not pg_catalog.has_function_privilege(
@@ -1011,17 +1147,24 @@ select throws_ok(
   'project RPCs reject a soft deleted project'
 );
 select throws_ok(
-  $$select public.import_project_csv_metrics(
+  $$select public.import_project_daily_metrics(
     (select id from public.organizations where name = 'Genesis'),
     (select id from public.projects where slug = 'projeto-excluido'),
-    '[{"date":"2026-08-03","invest":10}]'::jsonb,
-    '[]'::jsonb,
-    '2026-08-03',
-    '2026-08-03'
+    jsonb_build_object(
+      'id', '10000000-0000-4000-8000-000000000004',
+      'filename', 'excluido.csv',
+      'storagePath', (select organization_id::text from public.projects where slug = 'projeto-excluido')
+        || '/' || (select id::text from public.projects where slug = 'projeto-excluido')
+        || '/10000000-0000-4000-8000-000000000004/excluido.csv',
+      'sha256', repeat('c', 64), 'delimiter', ',',
+      'headers', '["date","investment","impressions","clicks","page_views","checkouts","core_sales","order_bump_1_sales","order_bump_2_sales","order_bump_3_sales"]'::jsonb,
+      'rows', '[{"line":2,"raw":{"date":"2026-08-03"},"data":{"date":"2026-08-03","investment":10,"impressions":10,"clicks":1,"page_views":1,"checkouts":1,"core_sales":1,"order_bump_1_sales":0,"order_bump_2_sales":0,"order_bump_3_sales":0}}]'::jsonb
+    ),
+    '2026-08-03', '2026-08-03'
   )$$,
   'P0002',
   'project not found',
-  'CSV import rejects a soft deleted project'
+  'daily CSV import rejects a soft deleted project'
 );
 reset role;
 select results_eq(

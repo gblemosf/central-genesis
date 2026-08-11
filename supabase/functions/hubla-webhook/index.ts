@@ -102,7 +102,8 @@ function eventTimestamp(type: string, event: JsonObject) {
     || stringValue(invoice.modifiedAt || invoice.createdAt)
     || stringValue(subscription.modifiedAt || subscription.createdAt)
     || stringValue(lead.createdAt);
-  const date = new Date(candidate || Date.now());
+  if (!candidate) return null;
+  const date = new Date(candidate);
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
@@ -190,6 +191,10 @@ Deno.serve(async (request: Request) => {
     : Object.keys(subscription).length > 0
       ? subscription
       : lead;
+  const entityId = stringValue(entity.id);
+  if ((type === "invoice.payment_succeeded" || type === "invoice.refunded") && !entityId) {
+    return new Response("Stable entity identifier required", { status: 400 });
+  }
   const currency = stringValue(
     invoice.currency || objectValue(subscription.lastInvoice).currency,
   ).toUpperCase() || "BRL";
@@ -201,7 +206,7 @@ Deno.serve(async (request: Request) => {
     p_event_type: type,
     p_contract_version: stringValue(payload.version) || null,
     p_event_at: timestamp,
-    p_entity_id: stringValue(entity.id) || null,
+    p_entity_id: entityId || null,
     p_entity_version: Number.isInteger(Number(entity.version)) ? Number(entity.version) : null,
     p_product_external_id: stringValue(product.id) || null,
     p_product_name: stringValue(product.name) || null,

@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { Provider } from "@/lib/domain";
+import { verifyGoogleRefreshToken } from "@/lib/google/oauth";
 import {
   decodeProviderCredentials,
   type ProviderCredentialFields,
@@ -167,6 +168,15 @@ export async function verifyProviderCredential(
       return {
         ok: true,
         accountName: stringValue(account.name || account.email || account.id, "Eduzz"),
+        mode: "remote",
+      };
+    }
+
+    if (provider === "google_forms") {
+      await verifyGoogleRefreshToken(rawCredential);
+      return {
+        ok: true,
+        accountName: "Google Forms autorizado",
         mode: "remote",
       };
     }

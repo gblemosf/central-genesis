@@ -57,6 +57,9 @@ O projeto existente possui tabelas legadas. A migration nova cria tabelas normal
 | `SUPABASE_SECRET_KEY` | Servidor | Rotas administrativas e acesso ao Vault |
 | `GENESIS_BOOTSTRAP_EMAILS` | Servidor | Lista separada por virgulas autorizada a criar a primeira organizacao |
 | `META_GRAPH_API_VERSION` | Servidor | Versao fixada da Graph API |
+| `GOOGLE_CLIENT_ID` | Servidor | Client ID OAuth para autorizar Google Forms |
+| `GOOGLE_CLIENT_SECRET` | Servidor | Client Secret OAuth para autorizar Google Forms |
+| `GOOGLE_REDIRECT_URI` | Servidor | Callback OAuth, como `https://SEU_DOMINIO/api/connections/google/callback` |
 | `NEXT_PUBLIC_DEMO_MODE` | Publica | Ativa dados demonstrativos apenas quando definido como `true` |
 
 Nunca adicione `SUPABASE_SECRET_KEY`, tokens Meta ou credenciais de plataformas ao GitHub.
@@ -74,6 +77,14 @@ Para cada BM da Genesis:
 7. Use a acao `Sincronizar Meta` no projeto para reconciliar o periodo solicitado.
 
 Um token representa somente o BM do seu System User. Se os ativos estiverem divididos entre dois BMs, cadastre duas conexoes.
+
+## Configuracao Google Forms
+
+1. Crie um OAuth Client no Google Cloud Console.
+2. Ative a Google Forms API no mesmo projeto Google.
+3. Adicione `GOOGLE_REDIRECT_URI` aos redirect URIs autorizados.
+4. Defina `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` e `GOOGLE_REDIRECT_URI` no ambiente do servidor.
+5. Use Integracoes para autorizar a conta Google e depois vincule formularios dentro de cada projeto.
 
 ## Seguranca
 

@@ -1,27 +1,27 @@
-export type MetricsCsvKind = "traffic" | "sales";
-
-export interface TrafficMetricsImportRow {
+export interface DailyMetricsImportRow {
   date: string;
   invest: number;
   impressions: number;
   clicks: number;
   pageviews: number;
   checkouts: number;
-}
-
-export interface SalesMetricsImportRow {
-  date: string;
   core: number;
   ob1: number;
   ob2: number;
   ob3: number;
-  ob4: number;
-  ob5: number;
-  up1: number;
-  up2: number;
-  ds1: number;
-  ds2: number;
-  fat_liquido: number;
+}
+
+export interface MetricsCsvInspectionRow {
+  line: number;
+  raw: Record<string, string>;
+  data: DailyMetricsImportRow;
+}
+
+export interface MetricsCsvInspection {
+  delimiter: string;
+  headers: string[];
+  rows: MetricsCsvInspectionRow[];
+  errors: { line?: number; message: string }[];
 }
 
 export class MetricsCsvError extends Error {
@@ -43,26 +43,15 @@ const headerAliases = {
     "views",
   ],
   checkouts: ["checkouts", "checkout"],
-  core: ["core", "vendas_core"],
-  ob1: ["ob1", "order_bump_1"],
-  ob2: ["ob2", "order_bump_2"],
-  ob3: ["ob3", "order_bump_3"],
-  ob4: ["ob4", "order_bump_4"],
-  ob5: ["ob5", "order_bump_5"],
-  up1: ["up1", "upsell_1"],
-  up2: ["up2", "upsell_2"],
-  ds1: ["ds1", "downsell_1"],
-  ds2: ["ds2", "downsell_2"],
-  fat_liquido: [
-    "fat_liquido",
-    "faturamento_liquido",
-    "receita_liquida",
-    "net_revenue",
-    "revenue",
-  ],
+  core: ["core", "vendas", "vendas_core"],
+  ob1: ["ob1", "vendas_ob1", "order_bump_1"],
+  ob2: ["ob2", "vendas_ob2", "order_bump_2"],
+  ob3: ["ob3", "vendas_ob3", "order_bump_3"],
 } as const;
 
 type CanonicalHeader = keyof typeof headerAliases;
+
+const requiredHeaders = Object.keys(headerAliases) as CanonicalHeader[];
 
 function normalizeHeader(value: string) {
   return value
@@ -86,21 +75,14 @@ function canonicalHeader(value: string): CanonicalHeader | null {
 }
 
 function detectDelimiter(text: string) {
-  const scores = new Map<string, number>([
-    [",", 0],
-    [";", 0],
-    ["\t", 0],
-  ]);
+  const scores = new Map<string, number>([[",", 0], [";", 0], ["\t", 0]]);
   let quoted = false;
 
   for (let index = 0; index < text.length; index += 1) {
     const character = text[index];
     if (character === '"') {
-      if (quoted && text[index + 1] === '"') {
-        index += 1;
-      } else {
-        quoted = !quoted;
-      }
+      if (quoted && text[index + 1] === '"') index += 1;
+      else quoted = !quoted;
     } else if (!quoted && (character === "\n" || character === "\r")) {
       break;
     } else if (!quoted && scores.has(character)) {
@@ -161,11 +143,9 @@ function parseDelimited(text: string) {
 
 function validDate(year: number, month: number, day: number) {
   const value = new Date(Date.UTC(year, month - 1, day));
-  return (
-    value.getUTCFullYear() === year &&
+  return value.getUTCFullYear() === year &&
     value.getUTCMonth() === month - 1 &&
-    value.getUTCDate() === day
-  );
+    value.getUTCDate() === day;
 }
 
 function parseDate(value: string, line: number) {
@@ -183,23 +163,13 @@ function parseDate(value: string, line: number) {
   return `${String(parts[0]).padStart(4, "0")}-${String(parts[1]).padStart(2, "0")}-${String(parts[2]).padStart(2, "0")}`;
 }
 
-function parseNumber(
-  value: string,
-  line: number,
-  field: string,
-  integer = false,
-  required = false,
-) {
+function parseNumber(value: string, line: number, field: string, integer = false) {
   const trimmed = value.trim();
-  if (!trimmed) {
-    if (required) throw new MetricsCsvError(`${field} nao pode ficar vazio.`, line);
-    return 0;
-  }
+  if (!trimmed) throw new MetricsCsvError(`${field} nao pode ficar vazio.`, line);
   const parenthesized = /^\(.*\)$/.test(trimmed);
   let normalized = trimmed
     .replace(/[\s\u00a0]/g, "")
     .replace(/^R\$/i, "")
-    .replace(/%$/, "")
     .replace(/[()]/g, "");
   if (!/^[+-]?\d[\d.,]*$/.test(normalized)) {
     throw new MetricsCsvError(`valor invalido em ${field}: "${trimmed}".`, line);
@@ -236,13 +206,11 @@ function parseNumber(
   if (!Number.isFinite(parsed) || (integer && !Number.isInteger(parsed))) {
     throw new MetricsCsvError(`valor invalido em ${field}: "${trimmed}".`, line);
   }
-  if (parsed < 0 && field !== "fat_liquido") {
-    throw new MetricsCsvError(`${field} nao pode ser negativo.`, line);
-  }
+  if (parsed < 0) throw new MetricsCsvError(`${field} nao pode ser negativo.`, line);
   return parsed;
 }
 
-function columnMap(headers: string[], required: CanonicalHeader[]) {
+function columnMap(headers: string[]) {
   const result = new Map<CanonicalHeader, number>();
   headers.forEach((header, index) => {
     const canonical = canonicalHeader(header);
@@ -252,111 +220,99 @@ function columnMap(headers: string[], required: CanonicalHeader[]) {
     }
     result.set(canonical, index);
   });
-  const missing = required.filter((header) => !result.has(header));
+  const missing = requiredHeaders.filter((header) => !result.has(header));
   if (missing.length) {
     throw new MetricsCsvError(`colunas obrigatorias ausentes: ${missing.join(", ")}.`);
   }
   return result;
 }
 
-function fieldFor(
-  fields: string[],
-  columns: Map<CanonicalHeader, number>,
-  header: CanonicalHeader,
-) {
-  const index = columns.get(header);
-  return index === undefined ? "" : fields[index] ?? "";
+function fieldFor(fields: string[], columns: Map<CanonicalHeader, number>, header: CanonicalHeader) {
+  return fields[columns.get(header) ?? -1] ?? "";
 }
 
-export function parseMetricsCsv(
-  text: string,
-  kind: "traffic",
-): TrafficMetricsImportRow[];
-export function parseMetricsCsv(
-  text: string,
-  kind: "sales",
-): SalesMetricsImportRow[];
-export function parseMetricsCsv(text: string, kind: MetricsCsvKind) {
-  const rows = parseDelimited(text.replace(/^\uFEFF/, ""));
-  if (rows.length < 2) throw new MetricsCsvError("o arquivo nao possui dados.");
-  if (rows.length > 10_001) {
-    throw new MetricsCsvError("o arquivo excede o limite de 10 mil linhas.");
+function parseRow(fields: string[], line: number, columns: Map<CanonicalHeader, number>) {
+  return {
+    date: parseDate(fieldFor(fields, columns, "date"), line),
+    invest: parseNumber(fieldFor(fields, columns, "invest"), line, "invest"),
+    impressions: parseNumber(fieldFor(fields, columns, "impressions"), line, "impressions", true),
+    clicks: parseNumber(fieldFor(fields, columns, "clicks"), line, "clicks", true),
+    pageviews: parseNumber(fieldFor(fields, columns, "pageviews"), line, "pageviews", true),
+    checkouts: parseNumber(fieldFor(fields, columns, "checkouts"), line, "checkouts", true),
+    core: parseNumber(fieldFor(fields, columns, "core"), line, "core", true),
+    ob1: parseNumber(fieldFor(fields, columns, "ob1"), line, "ob1", true),
+    ob2: parseNumber(fieldFor(fields, columns, "ob2"), line, "ob2", true),
+    ob3: parseNumber(fieldFor(fields, columns, "ob3"), line, "ob3", true),
+  } satisfies DailyMetricsImportRow;
+}
+
+export function inspectMetricsCsv(text: string): MetricsCsvInspection {
+  const normalizedText = text.replace(/^\uFEFF/, "");
+  const inspection: MetricsCsvInspection = {
+    delimiter: detectDelimiter(normalizedText),
+    headers: [],
+    rows: [],
+    errors: [],
+  };
+  let parsedRows: ReturnType<typeof parseDelimited>;
+  try {
+    parsedRows = parseDelimited(normalizedText);
+  } catch (error) {
+    const csvError = error instanceof MetricsCsvError
+      ? error
+      : new MetricsCsvError("nao foi possivel ler o arquivo.");
+    inspection.errors.push({ line: csvError.line, message: csvError.message });
+    return inspection;
+  }
+  if (parsedRows.length < 2) {
+    inspection.errors.push({ message: "O arquivo nao possui dados." });
+    return inspection;
+  }
+  if (parsedRows.length > 10_001) {
+    inspection.errors.push({ message: "O arquivo excede o limite de 10 mil linhas." });
+    return inspection;
   }
 
-  const required: CanonicalHeader[] =
-    kind === "traffic"
-      ? ["date", "invest", "impressions", "clicks", "pageviews", "checkouts"]
-      : ["date", "core", "fat_liquido"];
-  const columns = columnMap(rows[0].fields, required);
+  inspection.headers = parsedRows[0].fields.map((header) => header.trim());
+  let columns: Map<CanonicalHeader, number>;
+  try {
+    columns = columnMap(inspection.headers);
+  } catch (error) {
+    const csvError = error instanceof MetricsCsvError
+      ? error
+      : new MetricsCsvError("cabecalhos invalidos.");
+    inspection.errors.push({ message: csvError.message });
+    return inspection;
+  }
+
   const dates = new Set<string>();
-
-  return rows.slice(1).map(({ fields, line }) => {
-    const date = parseDate(fieldFor(fields, columns, "date"), line);
-    if (dates.has(date)) {
-      throw new MetricsCsvError(`a data ${date} aparece mais de uma vez.`, line);
-    }
-    dates.add(date);
-
-    if (kind === "traffic") {
-      return {
-        date,
-        invest: parseNumber(
-          fieldFor(fields, columns, "invest"),
-          line,
-          "invest",
-          false,
-          true,
-        ),
-        impressions: parseNumber(
-          fieldFor(fields, columns, "impressions"),
-          line,
-          "impressions",
-          true,
-          true,
-        ),
-        clicks: parseNumber(
-          fieldFor(fields, columns, "clicks"),
-          line,
-          "clicks",
-          true,
-          true,
-        ),
-        pageviews: parseNumber(
-          fieldFor(fields, columns, "pageviews"),
-          line,
-          "pageviews",
-          true,
-          true,
-        ),
-        checkouts: parseNumber(
-          fieldFor(fields, columns, "checkouts"),
-          line,
-          "checkouts",
-          true,
-          true,
-        ),
-      };
-    }
-
-    return {
-      date,
-      core: parseNumber(fieldFor(fields, columns, "core"), line, "core", true, true),
-      ob1: parseNumber(fieldFor(fields, columns, "ob1"), line, "ob1", true),
-      ob2: parseNumber(fieldFor(fields, columns, "ob2"), line, "ob2", true),
-      ob3: parseNumber(fieldFor(fields, columns, "ob3"), line, "ob3", true),
-      ob4: parseNumber(fieldFor(fields, columns, "ob4"), line, "ob4", true),
-      ob5: parseNumber(fieldFor(fields, columns, "ob5"), line, "ob5", true),
-      up1: parseNumber(fieldFor(fields, columns, "up1"), line, "up1", true),
-      up2: parseNumber(fieldFor(fields, columns, "up2"), line, "up2", true),
-      ds1: parseNumber(fieldFor(fields, columns, "ds1"), line, "ds1", true),
-      ds2: parseNumber(fieldFor(fields, columns, "ds2"), line, "ds2", true),
-      fat_liquido: parseNumber(
-        fieldFor(fields, columns, "fat_liquido"),
+  for (const { fields, line } of parsedRows.slice(1)) {
+    try {
+      const data = parseRow(fields, line, columns);
+      if (dates.has(data.date)) {
+        throw new MetricsCsvError(`a data ${data.date} aparece mais de uma vez.`, line);
+      }
+      dates.add(data.date);
+      inspection.rows.push({
         line,
-        "fat_liquido",
-        false,
-        true,
-      ),
-    };
-  });
+        raw: Object.fromEntries(
+          inspection.headers.map((header, index) => [header || `coluna_${index + 1}`, fields[index] ?? ""]),
+        ),
+        data,
+      });
+    } catch (error) {
+      const csvError = error instanceof MetricsCsvError
+        ? error
+        : new MetricsCsvError("linha invalida.", line);
+      inspection.errors.push({ line, message: csvError.message });
+    }
+  }
+  return inspection;
+}
+
+export function parseMetricsCsv(text: string) {
+  const inspection = inspectMetricsCsv(text);
+  const error = inspection.errors[0];
+  if (error) throw new MetricsCsvError(error.message);
+  return inspection.rows.map((row) => row.data);
 }

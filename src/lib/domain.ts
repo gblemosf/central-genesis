@@ -4,11 +4,18 @@ export const providers = [
   "eduzz",
   "kiwify",
   "hubla",
+  "google_forms",
 ] as const;
 
-export const operationalProviders = [...providers] as const;
+export const operationalProviders = [
+  "meta",
+  "hotmart",
+  "eduzz",
+  "kiwify",
+  "hubla",
+] as const;
 export const salesProviders = ["hotmart", "eduzz", "kiwify", "hubla"] as const;
-export const verifiableProviders = ["meta", "hotmart", "eduzz", "kiwify"] as const;
+export const verifiableProviders = ["meta", "hotmart", "eduzz", "kiwify", "google_forms"] as const;
 export const catalogProviders = ["hotmart", "eduzz", "kiwify"] as const;
 export const funnelStageTypes = [
   "core",
@@ -54,13 +61,18 @@ export interface ProductDailyMetric {
 
 export interface ProjectDailyMetric extends DailyMetric {
   productMetrics: ProductDailyMetric[];
+  csvDaily?: {
+    core: number;
+    ob1: number;
+    ob2: number;
+    ob3: number;
+  };
 }
 
 export interface ProjectMetricConfig {
   periodStart: string;
   periodEnd: string;
   trafficFeePercent: number;
-  plannedTrafficInvestment: number;
   manychatCost: number;
   companyCosts: number;
   otherCosts: number;
@@ -81,6 +93,9 @@ export interface ProjectMetricConfig {
   captureLeads: number;
   captureTarget: number;
   ticketNetPrice: number;
+  orderBump1NetPrice: number;
+  orderBump2NetPrice: number;
+  orderBump3NetPrice: number;
   formationNetPrice: number;
   ticketProductId: string | null;
   formationProductId: string | null;
@@ -91,12 +106,20 @@ export interface ProjectAnalytics {
   config: ProjectMetricConfig;
   configSaved: boolean;
   dataSources: {
-    csvTrafficRows: number;
-    csvSalesRows: number;
+    csvDailyRows: number;
     metaTrafficRows: number;
     webhookSalesEvents: number;
   };
   dailyMetrics: ProjectDailyMetric[];
+  imports?: {
+    id: string;
+    filename: string;
+    sha256: string;
+    rows: number;
+    periodStart: string;
+    periodEnd: string;
+    importedAt: string;
+  }[];
   warning?: string;
 }
 
@@ -130,6 +153,56 @@ export interface IntegrationConnection {
   productCount: number;
   lastVerifiedAt: string | null;
   lastError?: string;
+}
+
+export interface GoogleFormsConnectionOption {
+  id: string;
+  name: string;
+  status: ConnectionStatus;
+}
+
+export interface ProjectGoogleForm {
+  id: string;
+  title: string;
+  externalFormId: string;
+  responderUri: string | null;
+  schemaVersion: number;
+  totalResponses: number;
+  uniqueRespondents: number;
+  matchedResponses: number;
+  unresolvedResponses: number;
+  conflictResponses: number;
+  latestResponseAt: string | null;
+  lastSyncedAt: string | null;
+  lastError: string | null;
+}
+
+export interface ProjectContact {
+  id: string;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  source: string | null;
+  lastSeenAt: string;
+  createdAt: string;
+}
+
+export interface ProjectUtmAnalytics {
+  id: string;
+  source: string | null;
+  medium: string | null;
+  campaign: string | null;
+  contacts: number;
+  responses: number;
+  latestTouchAt: string | null;
+}
+
+export interface ProjectFormsData {
+  connections: GoogleFormsConnectionOption[];
+  forms: ProjectGoogleForm[];
+  contacts: ProjectContact[];
+  utms: ProjectUtmAnalytics[];
+  warning?: string;
 }
 
 export interface ProjectProduct {
@@ -206,4 +279,5 @@ export const providerLabels: Record<Provider, string> = {
   eduzz: "Eduzz",
   kiwify: "Kiwify",
   hubla: "Hubla",
+  google_forms: "Google Forms",
 };

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ArrowDown,
   ArrowUp,
@@ -128,6 +129,7 @@ export function NewProjectWizard({
   metaConnections: MetaConnectionOption[];
   salesConnections: SalesConnectionOption[];
 }) {
+  const router = useRouter();
   const [step, setStep] = useState(0);
   const [form, setForm] = useState(initialState);
   const [funnel, setFunnel] = useState(initialFunnel);
@@ -505,6 +507,7 @@ export function NewProjectWizard({
       setCreatedProjectId(body?.data?.id ?? null);
       setCreated(true);
       setSaving(false);
+      router.refresh();
     } catch {
       setError("Falha de rede ao criar o projeto.");
       setSaving(false);
@@ -534,6 +537,7 @@ export function NewProjectWizard({
           {createdProjectId && (
             <Link
               href={`/projects/${createdProjectId}`}
+              prefetch={false}
               className="rounded-xl bg-[var(--ink)] px-5 py-3 text-sm font-bold text-white"
             >
               Abrir projeto e abastecer dados
@@ -547,6 +551,7 @@ export function NewProjectWizard({
           </Link>
           <Link
             href="/projects"
+            prefetch={false}
             className="rounded-xl border border-[var(--line)] px-5 py-3 text-sm font-bold"
           >
             Voltar aos projetos

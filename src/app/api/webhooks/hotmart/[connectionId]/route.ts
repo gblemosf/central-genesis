@@ -5,13 +5,18 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { readConnectionSecret } from "@/lib/secret-store";
 
 const maxBodyBytes = 1_000_000;
-const handledEvents = new Set(["PURCHASE_APPROVED", "PURCHASE_COMPLETED"]);
+const handledEvents = new Set([
+  "PURCHASE_APPROVED",
+  "PURCHASE_COMPLETED",
+  "PURCHASE_REFUNDED",
+]);
 const stringOrNumber = z.union([z.string(), z.number()]);
 const hotmartEnvelopeSchema = z.object({ event: z.string() }).passthrough();
 const hotmartEventSchema = z
   .object({
     id: stringOrNumber.optional(),
     event: z.string(),
+    creation_date: stringOrNumber.optional(),
     data: z
       .object({
         product: z
@@ -60,7 +65,7 @@ function equalSecret(received: string, expected: string) {
 }
 
 function eventDate(value: string | number | undefined) {
-  if (value === undefined) return new Date().toISOString();
+  if (value === undefined) throw new Error("missing date");
   const numeric = typeof value === "number" || /^\d+$/.test(value);
   const timestamp = numeric ? Number(value) : value;
   const normalized =
@@ -103,7 +108,7 @@ export async function POST(
     return new Response("Service unavailable", { status: 503 });
   }
   const hottok = request.headers.get("x-hotmart-hottok") ?? "";
-  if (!equalSecret(hottok, expected)) {
+  if (!expected || !hottok || !equalSecret(hottok, expected)) {
     return new Response("Unauthorized", { status: 401 });
   }
 
@@ -139,7 +144,11 @@ export async function POST(
 
     let eventAt: string;
     try {
-      eventAt = eventDate(event.data.purchase.approved_date);
+      eventAt = eventDate(
+        event.event === "PURCHASE_REFUNDED"
+          ? event.creation_date ?? event.data.purchase.approved_date
+          : event.data.purchase.approved_date,
+      );
     } catch {
       return new Response("Invalid event date", { status: 400 });
     }
@@ -156,19 +165,30 @@ export async function POST(
       ? netAfterFee
       : event.data.purchase.commission_as ?? commissions;
     const currency = event.data.purchase.price?.currency_code?.toUpperCase() ?? "BRL";
-    const { data, error } = await admin.rpc("ingest_hotmart_sale", {
-      p_connection_id: connectionId,
-      p_external_event_id: externalEventId,
-      p_external_transaction_id: transaction,
-      p_event_type: event.event,
-      p_event_at: eventAt,
-      p_product_external_id: productExternalId,
-      p_product_name: event.data.product.name ?? productExternalId,
-      p_gross_amount: gross,
-      p_net_amount: net,
-      p_currency: currency,
-      p_payload: { product_external_id: productExternalId },
-    });
+    const { data, error } = event.event === "PURCHASE_REFUNDED"
+      ? await admin.rpc("ingest_hotmart_refund", {
+          p_connection_id: connectionId,
+          p_external_event_id: externalEventId,
+          p_external_transaction_id: transaction,
+          p_event_at: eventAt,
+          p_gross_amount: gross,
+          p_net_amount: net,
+          p_currency: currency,
+          p_payload: { product_external_id: productExternalId },
+        })
+      : await admin.rpc("ingest_hotmart_sale", {
+          p_connection_id: connectionId,
+          p_external_event_id: externalEventId,
+          p_external_transaction_id: transaction,
+          p_event_type: event.event,
+          p_event_at: eventAt,
+          p_product_external_id: productExternalId,
+          p_product_name: event.data.product.name ?? productExternalId,
+          p_gross_amount: gross,
+          p_net_amount: net,
+          p_currency: currency,
+          p_payload: { product_external_id: productExternalId },
+        });
     if (error) return new Response("Persistence failed", { status: 500 });
 
     const result = Array.isArray(data) ? data[0] : data;

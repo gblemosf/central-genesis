@@ -24,6 +24,7 @@ const requiredFields: Record<Provider, (keyof ProviderCredentialFields)[]> = {
   eduzz: ["accessToken"],
   kiwify: ["clientId", "clientSecret", "accountId"],
   hubla: ["webhookToken"],
+  google_forms: [],
 };
 
 export function decodeProviderCredentials(

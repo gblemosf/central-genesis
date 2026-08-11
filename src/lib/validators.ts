@@ -131,6 +131,18 @@ export const projectMetaAccountInputSchema = z.object({
   providerAccountId: z.uuid().nullable(),
 });
 
+export const googleFormSyncInputSchema = z
+  .object({
+    connectionId: z.uuid().nullable().optional(),
+    formUrl: z.string().trim().min(5).max(1_000).optional(),
+    googleFormId: z.uuid().optional(),
+    fullSync: z.boolean().optional().default(true),
+  })
+  .refine((input) => Boolean(input.formUrl) !== Boolean(input.googleFormId), {
+    message: "Informe uma URL nova ou um formulario ja vinculado.",
+    path: ["formUrl"],
+  });
+
 export const projectUpdateInputSchema = z.object({
   monthlyTarget: z.number().nonnegative().max(100_000_000),
   marginTarget: z.number().min(-100).max(100),
@@ -194,7 +206,6 @@ export const projectMetricConfigInputSchema = z
     periodStart: z.iso.date(),
     periodEnd: z.iso.date(),
     trafficFeePercent: z.number().min(0).max(100),
-    plannedTrafficInvestment: projectMetricMoney,
     manychatCost: projectMetricMoney,
     companyCosts: projectMetricMoney,
     otherCosts: projectMetricMoney,
@@ -215,6 +226,9 @@ export const projectMetricConfigInputSchema = z
     captureLeads: projectMetricCount,
     captureTarget: projectMetricCount,
     ticketNetPrice: projectMetricMoney,
+    orderBump1NetPrice: projectMetricMoney,
+    orderBump2NetPrice: projectMetricMoney,
+    orderBump3NetPrice: projectMetricMoney,
     formationNetPrice: projectMetricMoney,
     ticketProductId: z.uuid().nullable(),
     formationProductId: z.uuid().nullable(),

@@ -34,6 +34,9 @@ const migrations = [
   ["20260803201504", "Exclusao segura de projetos"],
   ["20260803210305", "Protecao do historico de projetos excluidos"],
   ["20260804075737", "Exclusao segura dos projetos legados"],
+  ["20260804143613", "Provedor Google Forms"],
+  ["20260804143631", "Formularios, contatos e UTMs"],
+  ["20260804191134", "Ajustes runtime do Google Forms"],
 ] as const;
 
 function getProjectRef(url: string) {
@@ -51,6 +54,9 @@ export default async function SettingsPage() {
   const bootstrapConfigured = Boolean(
     process.env.GENESIS_BOOTSTRAP_EMAILS?.trim(),
   );
+  const googleClientIdConfigured = Boolean(process.env.GOOGLE_CLIENT_ID?.trim());
+  const googleClientSecretConfigured = Boolean(process.env.GOOGLE_CLIENT_SECRET?.trim());
+  const googleRedirectUriConfigured = Boolean(process.env.GOOGLE_REDIRECT_URI?.trim());
   const demoExplicitlyDisabled = process.env.NEXT_PUBLIC_DEMO_MODE === "false";
   const metaGraphVersion = process.env.META_GRAPH_API_VERSION?.trim() || "v25.0";
   const projectRef = getProjectRef(publicEnv.url);
@@ -72,6 +78,7 @@ export default async function SettingsPage() {
       supabase
         .from("metricas_vendas")
         .select("organization_id", { head: true }),
+      supabase.from("google_forms").select("id", { head: true }),
     ]);
     databaseReady = checks.every((check) => !check.error);
   }
@@ -153,6 +160,33 @@ export default async function SettingsPage() {
       value: metaGraphVersion,
       description: "Versao da API Meta. Se estiver ausente, a aplicacao usa v25.0.",
       source: "Valor recomendado: v25.0",
+    },
+    {
+      name: "GOOGLE_CLIENT_ID",
+      ready: googleClientIdConfigured,
+      required: false,
+      secret: true,
+      value: "",
+      description: "Client ID OAuth usado para autorizar a leitura de Google Forms.",
+      source: "Google Cloud Console > APIs & Services > Credentials",
+    },
+    {
+      name: "GOOGLE_CLIENT_SECRET",
+      ready: googleClientSecretConfigured,
+      required: false,
+      secret: true,
+      value: "",
+      description: "Client Secret OAuth do mesmo app configurado no Google Cloud.",
+      source: "Google Cloud Console > APIs & Services > Credentials",
+    },
+    {
+      name: "GOOGLE_REDIRECT_URI",
+      ready: googleRedirectUriConfigured,
+      required: false,
+      secret: false,
+      value: process.env.GOOGLE_REDIRECT_URI?.trim() ?? "",
+      description: "URL autorizada para retorno do OAuth Google Forms.",
+      source: "https://SEU_DOMINIO/api/connections/google/callback",
     },
   ];
 
