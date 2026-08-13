@@ -670,7 +670,7 @@ export function NewProjectWizard({
                 </div>
                 <div className="rounded-2xl bg-violet-50 p-4 text-violet-950">
                   <FileSpreadsheet size={18} />
-                  <p className="mt-3 text-xs font-black">Planilhas CSV</p>
+                  <p className="mt-3 text-xs font-black">Importacao manual por CSV</p>
                   <p className="mt-1 text-[10px] leading-4">
                     Trafego e vendas realizados podem ser importados depois da criacao,
                     em Metricas &gt; Abastecimento.

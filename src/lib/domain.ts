@@ -109,6 +109,7 @@ export interface ProjectAnalytics {
     csvDailyRows: number;
     metaTrafficRows: number;
     webhookSalesEvents: number;
+    unmappedSalesEvents: number;
   };
   dailyMetrics: ProjectDailyMetric[];
   imports?: {

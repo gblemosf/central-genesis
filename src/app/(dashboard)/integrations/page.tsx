@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { IntegrationsManager } from "@/components/integrations-manager";
 import { getConnections } from "@/lib/data";
+import { isGoogleOAuthConfigured } from "@/lib/google/oauth";
 import { getSupabasePublicEnv } from "@/lib/supabase/env";
 
 export const metadata: Metadata = { title: "Integracoes" };
@@ -24,11 +25,14 @@ export default async function IntegrationsPage({ searchParams }: IntegrationsPag
       ? "Google Forms conectado com sucesso. Agora vincule formularios dentro de cada projeto."
       : googleFormsStatus === "error"
         ? "Nao foi possivel concluir a autorizacao do Google Forms. Revise as credenciais OAuth e tente novamente."
+        : googleFormsStatus === "not_configured"
+          ? "Google Forms ainda nao esta disponivel: configure as tres credenciais OAuth em Producao e publique novamente."
         : undefined;
   return (
     <IntegrationsManager
       initialConnections={connections.data}
       demoMode={getSupabasePublicEnv().demoMode}
+      googleOAuthConfigured={isGoogleOAuthConfigured()}
       warning={oauthMessage ?? connections.warning}
     />
   );

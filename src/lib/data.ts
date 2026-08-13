@@ -598,6 +598,7 @@ export async function getProjectAnalytics(
         webhookSalesEvents: dailyMetrics.filter(
           (metric) => metric.revenue !== 0 || metric.coreSales !== 0,
         ).length,
+        unmappedSalesEvents: 0,
       },
       dailyMetrics,
     };
@@ -617,6 +618,7 @@ export async function getProjectAnalytics(
         csvDailyRows: 0,
         metaTrafficRows: 0,
         webhookSalesEvents: 0,
+        unmappedSalesEvents: 0,
       },
       dailyMetrics: [],
       warning: projectError?.message ?? "Projeto nao encontrado.",
@@ -642,6 +644,10 @@ export async function getProjectAnalytics(
     typeof savedMetricSettings.baseCpa === "number" &&
     typeof savedMetricSettings.idealCpa === "number";
   const config = normalizeProjectMetricConfig(settings.metrics, projectToday);
+  const salesConnectionId =
+    typeof settings.sales_connection_id === "string" && settings.sales_connection_id
+      ? settings.sales_connection_id
+      : null;
   const startBuffer = new Date(`${config.periodStart}T00:00:00Z`);
   startBuffer.setUTCDate(startBuffer.getUTCDate() - 1);
   const endBuffer = new Date(`${config.periodEnd}T00:00:00Z`);
@@ -694,6 +700,7 @@ export async function getProjectAnalytics(
     legacySales,
     legacySalesCount,
     legacyProducts,
+    unmappedSalesCount,
   ] = await Promise.all([
     supabase
       .from("project_daily_metrics")
@@ -761,6 +768,14 @@ export async function getProjectAnalytics(
       .from("mapeamento_produtos")
       .select("product_id,projeto,campo,nome_produto")
       .eq("projeto", project.slug),
+    salesConnectionId
+      ? supabase
+          .from("sales_events")
+          .select("id", { count: "exact", head: true })
+          .eq("organization_id", project.organization_id)
+          .eq("connection_id", salesConnectionId)
+          .is("project_id", null)
+      : Promise.resolve({ count: 0, error: null }),
   ]);
 
   const products = new Map(catalog.products.map((product) => [product.id, product]));
@@ -1058,6 +1073,7 @@ export async function getProjectAnalytics(
     legacySales.error?.message ??
     legacySalesCount.error?.message ??
     legacyProducts.error?.message ??
+    unmappedSalesCount.error?.message ??
     importHistory.error?.message ??
     historicalProductsError?.message;
   return {
@@ -1069,6 +1085,7 @@ export async function getProjectAnalytics(
         Math.max(legacyTrafficCount.count ?? 0, legacySalesCount.count ?? 0),
       metaTrafficRows: metaTrafficCount.count ?? 0,
       webhookSalesEvents: webhookSalesCount.count ?? 0,
+      unmappedSalesEvents: unmappedSalesCount.count ?? 0,
     },
     dailyMetrics: Array.from(rows.values()).sort((a, b) => a.date.localeCompare(b.date)),
     imports: (importHistory.data ?? []).map((item) => ({

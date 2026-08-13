@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import { OverviewDashboard } from "@/components/overview-dashboard";
 import { getConnections, getProjects } from "@/lib/data";
+import { dateInTimezone } from "@/lib/dates";
 
 export const metadata: Metadata = { title: "Visao geral" };
+export const dynamic = "force-dynamic";
 
 export default async function OverviewPage() {
   const [projects, connections] = await Promise.all([
@@ -16,6 +18,7 @@ export default async function OverviewPage() {
       connections={connections.data}
       source={projects.source === "live" ? connections.source : "demo"}
       warning={projects.warning ?? connections.warning}
+      reportingDate={dateInTimezone(new Date())}
     />
   );
 }

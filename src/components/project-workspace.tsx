@@ -1,10 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import {
   Archive,
   ArrowDown,
   ArrowUp,
   Check,
+  CircleAlert,
   KeyRound,
   LoaderCircle,
   Plus,
@@ -25,6 +27,7 @@ import type {
   ProjectSummary,
 } from "@/lib/domain";
 import { calculatePerformance } from "@/lib/metrics";
+import { getProjectReadiness } from "@/lib/project-readiness";
 import { formatCurrency, formatNumber, formatPercent } from "@/lib/utils";
 
 const productSets: Record<string, { name: string; stage: string; price: number }[]> = {
@@ -76,12 +79,14 @@ export function ProjectWorkspace({
   analytics,
   initialForms,
   demoMode,
+  googleOAuthConfigured,
 }: {
   project: ProjectSummary;
   initialCatalog: ProjectCatalog;
   analytics: ProjectAnalytics;
   initialForms: ProjectFormsData;
   demoMode: boolean;
+  googleOAuthConfigured: boolean;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -178,6 +183,16 @@ export function ProjectWorkspace({
   const activeProducts = products.filter((product) => !product.archivedAt);
   const archivedProducts = products.filter((product) => product.archivedAt);
   const totals = calculatePerformance(project.dailyMetrics);
+  const readiness = getProjectReadiness(
+    project,
+    {
+      ...initialCatalog,
+      products,
+      stages,
+      linkedMetaAccountId: metaAccountId || null,
+    },
+    analytics,
+  );
   const hasProjectData = project.dailyMetrics.some(
     (metric) =>
       metric.investment !== 0 ||
@@ -728,6 +743,58 @@ export function ProjectWorkspace({
         </p>
       )}
 
+      {!project.legacy && (
+        <section className="panel rounded-[24px] p-5 sm:p-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="eyebrow">Prontidao operacional</p>
+              <h2 className="mt-2 text-xl font-black tracking-[-0.035em]">
+                {readiness.ready
+                  ? "Projeto pronto para acompanhamento"
+                  : "Complete o fluxo antes de confiar no dashboard"}
+              </h2>
+            </div>
+            <span
+              className={`w-fit rounded-full px-3 py-2 text-[10px] font-black uppercase tracking-wider ${
+                readiness.ready
+                  ? "bg-emerald-100 text-emerald-700"
+                  : "bg-amber-100 text-amber-800"
+              }`}
+            >
+              {readiness.completed}/{readiness.total} concluido(s)
+            </span>
+          </div>
+          <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            {readiness.items.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => setTab(item.target)}
+                className={`rounded-2xl border p-4 text-left transition hover:-translate-y-0.5 ${
+                  item.ready
+                    ? "border-emerald-200 bg-emerald-50/70"
+                    : "border-amber-200 bg-amber-50/70"
+                }`}
+              >
+                <span
+                  className={`grid size-7 place-items-center rounded-full ${
+                    item.ready
+                      ? "bg-emerald-600 text-white"
+                      : "bg-amber-200 text-amber-900"
+                  }`}
+                >
+                  {item.ready ? <Check size={13} /> : <CircleAlert size={13} />}
+                </span>
+                <span className="mt-3 block text-xs font-black">{item.label}</span>
+                <span className="mt-1 block text-[10px] leading-4 text-[var(--muted)]">
+                  {item.description}
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
       {tab === "overview" && (
         <>
           {!hasProjectData && (
@@ -856,6 +923,17 @@ export function ProjectWorkspace({
 
       {tab === "forms" && (
         <div className="space-y-5">
+          {!demoMode && !googleOAuthConfigured && (
+            <div className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-medium text-amber-950 sm:flex-row sm:items-center sm:justify-between">
+              <span>
+                A sincronizacao esta pausada porque as credenciais OAuth do Google nao
+                existem neste ambiente.
+              </span>
+              <Link href="/settings" className="shrink-0 font-black underline">
+                Revisar configuracao
+              </Link>
+            </div>
+          )}
           {initialForms.warning && (
             <p className="rounded-xl bg-amber-50 px-4 py-3 text-xs font-medium text-amber-950">
               {initialForms.warning}
@@ -879,17 +957,25 @@ export function ProjectWorkspace({
                   respostas, contatos e UTMs.
                 </p>
               </div>
-              {!googleConnections.length && !demoMode && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    window.location.href = "/api/connections/google/authorize";
-                  }}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-[var(--ink)] px-4 py-2.5 text-xs font-bold text-white"
-                >
-                  <KeyRound size={14} /> Conectar Google
-                </button>
-              )}
+              {!googleConnections.length && !demoMode &&
+                (googleOAuthConfigured ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      window.location.href = "/api/connections/google/authorize";
+                    }}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-[var(--ink)] px-4 py-2.5 text-xs font-bold text-white"
+                  >
+                    <KeyRound size={14} /> Conectar Google Forms
+                  </button>
+                ) : (
+                  <Link
+                    href="/settings"
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-xs font-bold text-amber-950"
+                  >
+                    <CircleAlert size={14} /> Configurar OAuth Google
+                  </Link>
+                ))}
             </div>
 
             <div className="grid gap-3 rounded-2xl bg-black/[0.035] p-4 lg:grid-cols-[220px_1fr_auto]">
@@ -917,6 +1003,7 @@ export function ProjectWorkspace({
                 onClick={() => syncGoogleForm()}
                 disabled={
                   formsOperation !== "idle" ||
+                  (!demoMode && !googleOAuthConfigured) ||
                   (!demoMode && (!googleConnectionId || !googleFormUrl.trim()))
                 }
                 className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[var(--ink)] px-4 text-xs font-bold text-white disabled:opacity-40"
@@ -949,7 +1036,9 @@ export function ProjectWorkspace({
                   <button
                     type="button"
                     onClick={() => syncGoogleForm(form.id)}
-                    disabled={formsOperation !== "idle"}
+                    disabled={
+                      formsOperation !== "idle" || (!demoMode && !googleOAuthConfigured)
+                    }
                     className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-[var(--line)] px-3 py-2 text-[10px] font-bold disabled:opacity-40"
                   >
                     {formsOperation === "syncing" ? (

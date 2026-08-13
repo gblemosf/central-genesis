@@ -37,6 +37,23 @@ const migrations = [
   ["20260804143613", "Provedor Google Forms"],
   ["20260804143631", "Formularios, contatos e UTMs"],
   ["20260804191134", "Ajustes runtime do Google Forms"],
+  ["20260811123241", "Normalizacao da importacao diaria por CSV"],
+] as const;
+
+const databaseRequirements = [
+  { table: "projects", column: "id", label: "Projetos" },
+  { table: "funnel_stages", column: "id", label: "Etapas de funil" },
+  { table: "integration_connections", column: "id", label: "Integracoes" },
+  { table: "traffic_metrics_daily", column: "id", label: "Trafego Meta" },
+  { table: "sales_events", column: "id", label: "Eventos de venda" },
+  { table: "hubla_webhook_events", column: "id", label: "Webhooks Hubla" },
+  { table: "project_daily_metrics", column: "project_id", label: "Metricas consolidadas" },
+  { table: "project_csv_daily_metrics", column: "project_id", label: "Metricas CSV normalizadas" },
+  { table: "metric_imports", column: "id", label: "Historico de importacoes" },
+  { table: "metricas_trafego", column: "organization_id", label: "Compatibilidade de trafego" },
+  { table: "metricas_vendas", column: "organization_id", label: "Compatibilidade de vendas" },
+  { table: "google_forms", column: "id", label: "Google Forms" },
+  { table: "project_form_analytics", column: "project_id", label: "Analise de formularios" },
 ] as const;
 
 function getProjectRef(url: string) {
@@ -57,6 +74,8 @@ export default async function SettingsPage() {
   const googleClientIdConfigured = Boolean(process.env.GOOGLE_CLIENT_ID?.trim());
   const googleClientSecretConfigured = Boolean(process.env.GOOGLE_CLIENT_SECRET?.trim());
   const googleRedirectUriConfigured = Boolean(process.env.GOOGLE_REDIRECT_URI?.trim());
+  const googleOAuthConfigured =
+    googleClientIdConfigured && googleClientSecretConfigured && googleRedirectUriConfigured;
   const demoExplicitlyDisabled = process.env.NEXT_PUBLIC_DEMO_MODE === "false";
   const metaGraphVersion = process.env.META_GRAPH_API_VERSION?.trim() || "v25.0";
   const projectRef = getProjectRef(publicEnv.url);
@@ -66,21 +85,24 @@ export default async function SettingsPage() {
 
   const supabase = await createSupabaseServerClient();
   let databaseReady = false;
+  let databaseChecks = databaseRequirements.map((requirement) => ({
+    ...requirement,
+    ready: false,
+    error: "Supabase indisponivel.",
+  }));
 
   if (supabase) {
-    const checks = await Promise.all([
-      supabase.from("projects").select("id", { head: true }),
-      supabase.from("funnel_stages").select("id", { head: true }),
-      supabase.from("hubla_webhook_events").select("id", { head: true }),
-      supabase
-        .from("metricas_trafego")
-        .select("organization_id", { head: true }),
-      supabase
-        .from("metricas_vendas")
-        .select("organization_id", { head: true }),
-      supabase.from("google_forms").select("id", { head: true }),
-    ]);
-    databaseReady = checks.every((check) => !check.error);
+    const checks = await Promise.all(
+      databaseRequirements.map((requirement) =>
+        supabase.from(requirement.table).select(requirement.column, { head: true }),
+      ),
+    );
+    databaseChecks = databaseRequirements.map((requirement, index) => ({
+      ...requirement,
+      ready: !checks[index].error,
+      error: checks[index].error?.message ?? "",
+    }));
+    databaseReady = databaseChecks.every((check) => check.ready);
   }
 
   const foundationChecks = [
@@ -101,6 +123,12 @@ export default async function SettingsPage() {
       ready: databaseReady,
       description: "As tabelas essenciais respondem para o usuario atual.",
       icon: LockKeyhole,
+    },
+    {
+      label: "Google Forms",
+      ready: googleOAuthConfigured,
+      description: "As tres credenciais OAuth estao disponiveis neste ambiente.",
+      icon: PlugZap,
     },
   ];
   const completedFoundations = foundationChecks.filter((item) => item.ready).length;
@@ -164,7 +192,7 @@ export default async function SettingsPage() {
     {
       name: "GOOGLE_CLIENT_ID",
       ready: googleClientIdConfigured,
-      required: false,
+      required: true,
       secret: true,
       value: "",
       description: "Client ID OAuth usado para autorizar a leitura de Google Forms.",
@@ -173,7 +201,7 @@ export default async function SettingsPage() {
     {
       name: "GOOGLE_CLIENT_SECRET",
       ready: googleClientSecretConfigured,
-      required: false,
+      required: true,
       secret: true,
       value: "",
       description: "Client Secret OAuth do mesmo app configurado no Google Cloud.",
@@ -182,7 +210,7 @@ export default async function SettingsPage() {
     {
       name: "GOOGLE_REDIRECT_URI",
       ready: googleRedirectUriConfigured,
-      required: false,
+      required: true,
       secret: false,
       value: process.env.GOOGLE_REDIRECT_URI?.trim() ?? "",
       description: "URL autorizada para retorno do OAuth Google Forms.",
@@ -263,7 +291,7 @@ export default async function SettingsPage() {
             Atualizado ao abrir esta pagina
           </p>
         </div>
-        <div className="grid gap-4 lg:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {foundationChecks.map((item) => {
             const Icon = item.icon;
             return (
@@ -491,12 +519,12 @@ export default async function SettingsPage() {
               id="database-title"
               className="mt-2 text-2xl font-black tracking-[-0.04em]"
             >
-              Migrations ja aplicadas
+              Estrutura operacional verificada
             </h2>
             <p className="mt-2 max-w-3xl text-xs leading-5 text-[var(--muted)]">
-              Migration e uma atualizacao versionada da estrutura do banco. Ela roda no
-              Supabase, nao na Vercel. As versoes abaixo formam a estrutura esperada deste
-              projeto; voce nao precisa colar SQL nem clicar em executar.
+              Esta verificacao consulta as tabelas e visoes realmente usadas pela aplicacao.
+              Um item verde respondeu para o usuario atual; um item amarelo precisa ser
+              investigado antes de confiar nos indicadores.
             </p>
           </div>
           <span
@@ -512,13 +540,53 @@ export default async function SettingsPage() {
         </div>
 
         <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {databaseChecks.map((item) => (
+            <div
+              key={item.table}
+              className={`flex items-start gap-3 rounded-xl border p-4 ${
+                item.ready
+                  ? "border-emerald-200 bg-emerald-50/60"
+                  : "border-amber-200 bg-amber-50/70"
+              }`}
+            >
+              <span
+                className={`mt-0.5 grid size-6 shrink-0 place-items-center rounded-full ${
+                  item.ready
+                    ? "bg-emerald-100 text-emerald-700"
+                    : "bg-amber-200 text-amber-900"
+                }`}
+              >
+                {item.ready ? <Check size={12} /> : <CircleAlert size={12} />}
+              </span>
+              <div className="min-w-0">
+                <p className="text-xs font-black leading-5">{item.label}</p>
+                <code className="block truncate text-[10px] text-[var(--muted)]">
+                  {item.table}
+                </code>
+                {!item.ready && item.error && (
+                  <p className="mt-1 text-[10px] leading-4 text-amber-900">{item.error}</p>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-8 border-t border-[var(--line)] pt-6">
+          <h3 className="text-sm font-black">Versoes esperadas no repositorio</h3>
+          <p className="mt-2 max-w-3xl text-xs leading-5 text-[var(--muted)]">
+            Esta lista documenta a versao do codigo. Ela nao afirma, sozinha, que a migration
+            foi aplicada no banco remoto; a confirmacao definitiva vem do historico de
+            migrations do Supabase.
+          </p>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {migrations.map(([version, label]) => (
             <div
               key={version}
               className="flex items-start gap-3 rounded-xl border border-[var(--line)] bg-white/45 p-4"
             >
-              <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-full bg-emerald-100 text-emerald-700">
-                <Check size={12} />
+              <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-500">
+                <Minus size={12} />
               </span>
               <div className="min-w-0">
                 <code className="text-[10px] font-bold text-[var(--muted)]">{version}</code>
@@ -531,8 +599,9 @@ export default async function SettingsPage() {
         <div className="mt-5 flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 text-xs leading-5 text-blue-950">
           <ServerCog size={17} className="mt-0.5 shrink-0" />
           <p>
-            Somente um desenvolvedor deve aplicar novas migrations. O fluxo seguro e
-            revisar os arquivos, testar localmente, usar{" "}
+            Somente um desenvolvedor deve aplicar novas migrations. Confirme o historico com{" "}
+            <code>supabase migration list</code>. Para uma nova versao, revise os arquivos,
+            teste localmente, use{" "}
             <code>supabase db push --dry-run</code> e depois{" "}
             <code>supabase db push</code>.
           </p>

@@ -3,11 +3,18 @@ import { apiErrorResponse, requireAdmin } from "@/lib/api-auth";
 import {
   createGoogleOAuthState,
   getGoogleAuthorizationUrl,
+  isGoogleOAuthConfigured,
 } from "@/lib/google/oauth";
 
 const stateCookieName = "genesis_google_oauth_state";
 
 export async function GET(request: Request) {
+  if (!isGoogleOAuthConfigured()) {
+    const integrationsUrl = new URL("/integrations", request.url);
+    integrationsUrl.searchParams.set("googleForms", "not_configured");
+    return Response.redirect(integrationsUrl);
+  }
+
   try {
     const context = await requireAdmin();
     const state = createGoogleOAuthState(context.userId, context.organizationId);

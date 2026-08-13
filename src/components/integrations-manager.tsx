@@ -94,10 +94,12 @@ function hasRequiredCredentials(form: ConnectionForm) {
 export function IntegrationsManager({
   initialConnections,
   demoMode,
+  googleOAuthConfigured,
   warning,
 }: {
   initialConnections: IntegrationConnection[];
   demoMode: boolean;
+  googleOAuthConfigured: boolean;
   warning?: string;
 }) {
   const [connections, setConnections] = useState(initialConnections);
@@ -683,16 +685,21 @@ export function IntegrationsManager({
 
         <button
           type="button"
+          disabled={!googleOAuthConfigured}
           onClick={() => {
             window.location.href = "/api/connections/google/authorize";
           }}
-          className="grid min-h-72 place-items-center rounded-[24px] border border-dashed border-sky-300 bg-sky-50/70 p-6 text-center text-sky-950 transition hover:bg-sky-50"
+          className="grid min-h-72 place-items-center rounded-[24px] border border-dashed border-sky-300 bg-sky-50/70 p-6 text-center text-sky-950 transition hover:bg-sky-50 disabled:cursor-not-allowed disabled:border-amber-300 disabled:bg-amber-50 disabled:text-amber-950"
         >
           <span>
             <KeyRound className="mx-auto mb-3 text-sky-600" />
-            <strong className="block text-sm">Conectar Google Forms</strong>
+            <strong className="block text-sm">
+              {googleOAuthConfigured ? "Conectar Google Forms" : "Google Forms indisponivel"}
+            </strong>
             <small className="mt-2 block max-w-56 text-[11px] leading-5 text-sky-900/70">
-              Autorize uma conta Google da organizacao para ler formularios e respostas.
+              {googleOAuthConfigured
+                ? "Autorize uma conta Google da organizacao para ler formularios e respostas."
+                : "Faltam as credenciais OAuth do Google no ambiente publicado. Revise Configuracoes."}
             </small>
           </span>
         </button>

@@ -8,6 +8,7 @@ import {
   getProjectFormsData,
 } from "@/lib/data";
 import { dateInTimezone } from "@/lib/dates";
+import { isGoogleOAuthConfigured } from "@/lib/google/oauth";
 import { defaultProjectMetricConfig } from "@/lib/project-metrics";
 
 export const metadata: Metadata = { title: "Projeto" };
@@ -37,6 +38,7 @@ export default async function ProjectPage({
             csvDailyRows: project.data.dailyMetrics.length,
             metaTrafficRows: 0,
             webhookSalesEvents: 0,
+            unmappedSalesEvents: 0,
           },
           dailyMetrics: project.data.dailyMetrics.map((metric) => ({
           ...metric,
@@ -57,6 +59,7 @@ export default async function ProjectPage({
       analytics={analytics}
       initialForms={forms}
       demoMode={project.source === "demo"}
+      googleOAuthConfigured={isGoogleOAuthConfigured()}
     />
   );
 }

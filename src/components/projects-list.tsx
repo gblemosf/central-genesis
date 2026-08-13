@@ -136,6 +136,11 @@ export function ProjectsList({
                 className="panel rise-in group relative rounded-[24px] p-5 transition hover:-translate-y-1 hover:shadow-[0_24px_65px_rgba(21,28,38,.1)]"
                 style={{ animationDelay: `${index * 55}ms` }}
               >
+                <Link
+                  href={`/projects/${project.id}`}
+                  aria-label={`Abrir projeto ${project.name}`}
+                  className="absolute inset-0 z-10 rounded-[24px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ink)]"
+                />
                 <div className="mb-7 flex items-start justify-between">
                   <div className="flex items-center gap-3">
                     <div
@@ -150,7 +155,7 @@ export function ProjectsList({
                     </div>
                   </div>
                   {canManage && (
-                    <div className="relative">
+                    <div className="relative z-20">
                       <button
                         type="button"
                         aria-label={`Opcoes do projeto ${project.name}`}
@@ -215,12 +220,9 @@ export function ProjectsList({
                   <span className="rounded-full bg-black/[0.045] px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider text-[var(--muted)]">
                     {statusLabels[project.status]}
                   </span>
-                  <Link
-                    href={`/projects/${project.id}`}
-                    className="flex items-center gap-1 text-xs font-black"
-                  >
+                  <span className="flex items-center gap-1 text-xs font-black">
                     Abrir <ArrowUpRight size={14} />
-                  </Link>
+                  </span>
                 </div>
               </article>
             );

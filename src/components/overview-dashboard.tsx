@@ -29,6 +29,10 @@ import type {
 } from "@/lib/domain";
 import { calculatePerformance } from "@/lib/metrics";
 import {
+  buildOverviewDailySeries,
+  connectionOperationalSummary,
+} from "@/lib/overview";
+import {
   cn,
   formatCurrency,
   formatNumber,
@@ -39,6 +43,7 @@ interface OverviewDashboardProps {
   projects: ProjectSummary[];
   connections: IntegrationConnection[];
   source: "live" | "demo";
+  reportingDate: string;
   warning?: string;
 }
 
@@ -53,33 +58,18 @@ export function OverviewDashboard({
   projects,
   connections,
   source,
+  reportingDate,
   warning,
 }: OverviewDashboardProps) {
   const [selectedProject, setSelectedProject] = useState("all");
+  const activeProjects = projects.filter((project) => project.status === "active");
   const visibleProjects =
     selectedProject === "all"
-      ? projects.filter((project) => project.status === "active")
-      : projects.filter((project) => project.id === selectedProject);
+      ? activeProjects
+      : activeProjects.filter((project) => project.id === selectedProject);
   const rows = visibleProjects.flatMap((project) => project.dailyMetrics);
   const totals = calculatePerformance(rows);
-
-  const byDate = Array.from(
-    rows.reduce((dates, row) => {
-      const current = dates.get(row.date) ?? {
-        date: row.date,
-        investment: 0,
-        revenue: 0,
-        coreSales: 0,
-      };
-      current.investment += row.investment;
-      current.revenue += row.revenue;
-      current.coreSales += row.coreSales;
-      dates.set(row.date, current);
-      return dates;
-    }, new Map<string, { date: string; investment: number; revenue: number; coreSales: number }>()),
-  )
-    .map(([, value]) => value)
-    .sort((a, b) => a.date.localeCompare(b.date));
+  const byDate = buildOverviewDailySeries(rows, reportingDate);
 
   const kpis = [
     {
@@ -132,7 +122,7 @@ export function OverviewDashboard({
             className="field min-w-48 bg-[var(--paper)] text-sm font-semibold"
           >
             <option value="all">Todos os projetos ativos</option>
-            {projects.map((project) => (
+            {activeProjects.map((project) => (
               <option key={project.id} value={project.id}>
                 {project.name}
               </option>
@@ -317,7 +307,7 @@ export function OverviewDashboard({
             </Link>
           </div>
           <div className="space-y-2">
-            {projects.slice(0, 4).map((project) => {
+            {activeProjects.slice(0, 4).map((project) => {
               const performance = calculatePerformance(project.dailyMetrics);
               return (
                 <Link
@@ -350,6 +340,18 @@ export function OverviewDashboard({
                 </Link>
               );
             })}
+            {activeProjects.length === 0 && (
+              <div className="rounded-2xl border border-dashed border-[var(--line)] px-4 py-8 text-center">
+                <p className="text-xs font-black">Nenhum projeto ativo</p>
+                <p className="mt-2 text-[10px] leading-4 text-[var(--muted)]">
+                  Abra um projeto em revisao, conclua o abastecimento e altere o status
+                  para Ativo.
+                </p>
+                <Link href="/projects" className="mt-4 inline-flex text-xs font-black">
+                  Revisar projetos <ArrowUpRight size={14} />
+                </Link>
+              </div>
+            )}
           </div>
         </article>
 
@@ -381,7 +383,7 @@ export function OverviewDashboard({
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-xs font-extrabold">{connection.name}</p>
                   <p className="text-[10px] text-[var(--muted)]">
-                    {connection.accountCount} contas vinculadas
+                    {connectionOperationalSummary(connection)}
                   </p>
                 </div>
                 <span className="rounded-full bg-black/[0.045] px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider text-[var(--muted)]">

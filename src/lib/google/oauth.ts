@@ -34,6 +34,14 @@ function googleClientSecret() {
   return process.env.GOOGLE_CLIENT_SECRET?.trim() ?? "";
 }
 
+export function isGoogleOAuthConfigured() {
+  return Boolean(
+    googleClientId() &&
+      googleClientSecret() &&
+      process.env.GOOGLE_REDIRECT_URI?.trim(),
+  );
+}
+
 export function getGoogleRedirectUri(requestUrl?: string) {
   const configured = process.env.GOOGLE_REDIRECT_URI?.trim();
   if (configured) return configured;
