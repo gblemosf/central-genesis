@@ -52,6 +52,16 @@ export async function PATCH(
           ? "attention"
           : connection.status;
 
+    if (input.credentials) {
+      const existing = await readConnectionSecret(connectionId).catch(() => undefined);
+      const credential = serializeProviderCredentials(
+        connection.provider,
+        input.credentials,
+        existing,
+      );
+      await storeConnectionSecret(connectionId, credential);
+    }
+
     const { error: updateError } = await context.supabase
       .from("integration_connections")
       .update({
@@ -66,16 +76,6 @@ export async function PATCH(
       .eq("id", connectionId)
       .eq("organization_id", context.organizationId);
     if (updateError) throw new ApiError("Nao foi possivel editar a conexao.", 503);
-
-    if (input.credentials) {
-      const existing = await readConnectionSecret(connectionId).catch(() => undefined);
-      const credential = serializeProviderCredentials(
-        connection.provider,
-        input.credentials,
-        existing,
-      );
-      await storeConnectionSecret(connectionId, credential);
-    }
 
     return Response.json({
       data: {

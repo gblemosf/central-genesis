@@ -50,7 +50,7 @@ export default async function ProjectPage({
     : await getProjectAnalytics(projectId, catalog);
   const forms = project.source === "live" && !project.data.legacy
     ? await getProjectFormsData(projectId)
-    : { connections: [], forms: [], contacts: [], utms: [] };
+    : { connections: [], forms: [], contacts: [], utms: [], recoveryAttempts: [] };
 
   return (
     <ProjectWorkspace

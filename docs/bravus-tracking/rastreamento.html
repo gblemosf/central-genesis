@@ -1,0 +1,122 @@
+<script>
+/* Bravus / Da Prova a Farda — 2026-09-10.
+ * Substitui o bloco que contem `const pageCodes` (nao e um snippet adicional).
+ * O fluxo de vendas precisa mapear dpaf7028 para /da-prova-a-farda-v2h6-27/.
+ * Manter os codigos nos hrefs salvos: identificacao funciona sem JavaScript.
+ */
+(function () {
+  'use strict';
+
+  const pageCodes = {
+    '/operacao-farda-v1-h1/': 'dpaf6373',
+    '/da-prova-a-farda-v2h1/': 'dpaf6860',
+    '/da-prova-a-farda-v1h6/': 'dpaf6869',
+    '/da-prova-a-farda-v2h6-27/': 'dpaf7028'
+  };
+  const pagePath = window.location.pathname.replace(/\/?$/, '/');
+  const pageCode = pageCodes[pagePath];
+  const current = new URLSearchParams(window.location.search);
+  if (!pageCode || current.has('elementor-preview') || current.has('preview')) return;
+  if (window.__bravusDpafTracking20260910) return;
+  window.__bravusDpafTracking20260910 = true;
+
+  // Preserva a ordem usada no script anterior. Nao inverter sem revisar o n8n.
+  const sckKeys = [
+    'utm_source', 'utm_medium', 'utm_campaign',
+    'utm_term', 'utm_content', 'fbclid'
+  ];
+  const trackedKeys = sckKeys.concat('utm_id');
+  const hasTracking = sckKeys.some(key => current.get(key));
+  // Contrato de 05/09: pipes com espacos pertencem ao nome;
+  // pipes sem espacos separam os campos no parser do n8n entregue naquela data.
+  const sck = hasTracking
+    ? sckKeys.map(key => (current.get(key) || '').replace(/\s*\|\s*/g, ' | ').trim()).join('|')
+    : current.get('sck') || '';
+
+  function getCookie(name) {
+    try {
+      const prefix = name + '=';
+      const item = document.cookie.split(';').map(value => value.trim())
+        .find(value => value.indexOf(prefix) === 0);
+      if (!item) return '';
+      try { return decodeURIComponent(item.slice(prefix.length)); }
+      catch (_) { return item.slice(prefix.length); }
+    } catch (_) {
+      // Cookies bloqueados nao podem impedir o envio do codigo da pagina.
+      return '';
+    }
+  }
+
+  const fbclid = current.get('fbclid') || '';
+  const existingFbc = getCookie('_fbc');
+  const fbc = fbclid
+    ? (existingFbc.endsWith('.' + fbclid)
+      ? existingFbc
+      : 'fb.1.' + Date.now() + '.' + fbclid)
+    : existingFbc;
+
+  function decorateLink(link) {
+    if (!link || !link.getAttribute('href')) return;
+    let url;
+    try { url = new URL(link.getAttribute('href'), window.location.href); }
+    catch (_) { return; }
+    if (url.protocol !== 'https:' || url.hostname !== 'pay.hotmart.com' ||
+        url.port || url.username || url.password || url.pathname !== '/V107140616F') return;
+
+    // Apenas parametros de rastreamento sao atualizados. Oferta e checkout ficam intactos.
+    trackedKeys.forEach(key => {
+      const value = current.get(key);
+      if (value) url.searchParams.set(key, value);
+    });
+    const fbp = getCookie('_fbp');
+    if (fbp) url.searchParams.set('fbp', fbp);
+    if (fbc) url.searchParams.set('fbc', fbc);
+    if (sck) url.searchParams.set('sck', sck);
+    url.searchParams.set('xcod', pageCode);
+    const nextHref = url.toString();
+    if (link.href !== nextHref) link.href = nextHref;
+  }
+
+  function decorateAll() {
+    document.querySelectorAll('a[href]').forEach(decorateLink);
+  }
+
+  // Cobre carregamento normal, snippet no fim da pagina e retorno pelo botao Voltar.
+  decorateAll();
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', decorateAll, { once: true });
+  }
+  window.addEventListener('pageshow', decorateAll);
+
+  // Corrige o href antes da navegacao, inclusive teclado, nova aba e menu de contexto.
+  ['pointerdown', 'click', 'auxclick', 'contextmenu', 'focusin'].forEach(eventName => {
+    document.addEventListener(eventName, function (event) {
+      const target = event.target;
+      if (target && typeof target.closest === 'function') {
+        decorateLink(target.closest('a[href]'));
+      }
+    }, true);
+  });
+
+  // Cobre botoes inseridos/substituidos depois do carregamento e alteracoes de href.
+  // Comparar antes de escrever impede um ciclo de atualizacoes pelo observador.
+  if (typeof MutationObserver !== 'undefined' && document.documentElement) {
+    let pending = false;
+    const observer = new MutationObserver(function (records) {
+      const hasLinks = records.some(record => record.type === 'attributes'
+        ? record.target.tagName === 'A'
+        : Array.from(record.addedNodes).some(node => node.nodeType === 1 &&
+          (node.matches('a[href]') || node.querySelector('a[href]'))));
+      if (!hasLinks || pending) return;
+      pending = true;
+      Promise.resolve().then(function () {
+        pending = false;
+        decorateAll();
+      });
+    });
+    observer.observe(document.documentElement, {
+      childList: true, subtree: true, attributes: true, attributeFilter: ['href']
+    });
+  }
+})();
+</script>

@@ -46,6 +46,8 @@ export function FunnelSimulator() {
             setStages(defaultFunnel);
             setAdCost(30000);
             setExtraCost(5000);
+            setTarget(100000);
+            setMode("cascade");
           }}
           className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] bg-white/50 px-4 py-2.5 text-xs font-bold"
         >

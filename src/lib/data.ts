@@ -715,7 +715,10 @@ export async function getProjectAnalytics(
       .from("traffic_metrics_daily")
       .select("id", { count: "exact", head: true })
       .eq("organization_id", project.organization_id)
-      .eq("project_id", projectId),
+      .eq("project_id", projectId)
+      .eq("source", "meta")
+      .gte("metric_date", config.periodStart)
+      .lte("metric_date", config.periodEnd),
     salesRequest(),
     supabase
       .from("sales_events")
@@ -726,7 +729,9 @@ export async function getProjectAnalytics(
         "PURCHASE_APPROVED",
         "PURCHASE_COMPLETED",
         "PURCHASE_REFUNDED",
-      ]),
+      ])
+      .gte("event_at", startBuffer.toISOString())
+      .lt("event_at", endBuffer.toISOString()),
     supabase
       .from("project_csv_daily_metrics")
       .select("project_id,metric_date,investment,impressions,clicks,page_views,checkouts,core_sales,order_bump_1_sales,order_bump_2_sales,order_bump_3_sales")
@@ -739,7 +744,9 @@ export async function getProjectAnalytics(
       .from("project_csv_daily_metrics")
       .select("metric_date", { count: "exact", head: true })
       .eq("organization_id", project.organization_id)
-      .eq("project_id", projectId),
+      .eq("project_id", projectId)
+      .gte("metric_date", config.periodStart)
+      .lte("metric_date", config.periodEnd),
     supabase
       .from("metricas_trafego")
       .select("projeto,date,invest,impressions,clicks,pageviews,checkouts")
@@ -751,7 +758,9 @@ export async function getProjectAnalytics(
       .from("metricas_trafego")
       .select("id", { count: "exact", head: true })
       .eq("organization_id", project.organization_id)
-      .eq("projeto", project.slug),
+      .eq("projeto", project.slug)
+      .gte("date", config.periodStart)
+      .lte("date", config.periodEnd),
     supabase
       .from("metricas_vendas")
       .select("projeto,date,core,ob1,ob2,ob3,ob4,ob5,up1,up2,ds1,ds2,fat_liquido")
@@ -763,7 +772,9 @@ export async function getProjectAnalytics(
       .from("metricas_vendas")
       .select("id", { count: "exact", head: true })
       .eq("organization_id", project.organization_id)
-      .eq("projeto", project.slug),
+      .eq("projeto", project.slug)
+      .gte("date", config.periodStart)
+      .lte("date", config.periodEnd),
     supabase
       .from("mapeamento_produtos")
       .select("product_id,projeto,campo,nome_produto")
@@ -775,6 +786,13 @@ export async function getProjectAnalytics(
           .eq("organization_id", project.organization_id)
           .eq("connection_id", salesConnectionId)
           .is("project_id", null)
+          .in("event_type", [
+            "PURCHASE_APPROVED",
+            "PURCHASE_COMPLETED",
+            "PURCHASE_REFUNDED",
+          ])
+          .gte("event_at", startBuffer.toISOString())
+          .lt("event_at", endBuffer.toISOString())
       : Promise.resolve({ count: 0, error: null }),
   ]);
 
@@ -1076,13 +1094,23 @@ export async function getProjectAnalytics(
     unmappedSalesCount.error?.message ??
     importHistory.error?.message ??
     historicalProductsError?.message;
+  const normalizedCsvDateSet = new Set(
+    ((normalizedCsvDaily.data ?? []) as NormalizedCsvDailyRow[]).map(
+      (row) => row.metric_date,
+    ),
+  );
+  const legacyCsvDateSet = new Set(
+    [
+      ...((legacyTraffic.data ?? []) as LegacyTrafficRow[]).map((row) => row.date),
+      ...((legacySales.data ?? []) as LegacySalesRow[]).map((row) => row.date),
+    ].filter((date) => !normalizedCsvDateSet.has(date)),
+  );
   return {
     config,
     configSaved,
     dataSources: {
       csvDailyRows:
-        (normalizedCsvDailyCount.count ?? 0) +
-        Math.max(legacyTrafficCount.count ?? 0, legacySalesCount.count ?? 0),
+        normalizedCsvDateSet.size + legacyCsvDateSet.size,
       metaTrafficRows: metaTrafficCount.count ?? 0,
       webhookSalesEvents: webhookSalesCount.count ?? 0,
       unmappedSalesEvents: unmappedSalesCount.count ?? 0,
@@ -1108,6 +1136,7 @@ export async function getProjectFormsData(projectId: string): Promise<ProjectFor
     forms: [],
     contacts: [],
     utms: [],
+    recoveryAttempts: [],
   };
   if (!supabase) return empty;
 
@@ -1124,7 +1153,7 @@ export async function getProjectFormsData(projectId: string): Promise<ProjectFor
     };
   }
 
-  const [connections, forms, analytics, contacts, utms] = await Promise.all([
+  const [connections, forms, analytics, contacts, utms, recoveryAttempts] = await Promise.all([
     supabase
       .from("integration_connections")
       .select("id,name,status")
@@ -1165,6 +1194,15 @@ export async function getProjectFormsData(projectId: string): Promise<ProjectFor
       .eq("project_id", projectId)
       .order("latest_touch_at", { ascending: false, nullsFirst: false })
       .limit(100),
+    supabase
+      .from("checkout_recovery_attempts")
+      .select(
+        "id,status,amount,currency,offer_external_id,checkout_url,first_seen_at,last_seen_at,recovered_at,contacts(name,email,phone),utm_campaigns(utm_source,utm_medium,utm_campaign)",
+      )
+      .eq("organization_id", project.organization_id)
+      .eq("project_id", projectId)
+      .order("last_seen_at", { ascending: false })
+      .limit(100),
   ]);
 
   const warning =
@@ -1172,7 +1210,8 @@ export async function getProjectFormsData(projectId: string): Promise<ProjectFor
     forms.error?.message ??
     analytics.error?.message ??
     contacts.error?.message ??
-    utms.error?.message;
+    utms.error?.message ??
+    recoveryAttempts.error?.message;
   if (warning) return { ...empty, warning };
 
   const analyticsByForm = new Map(
@@ -1221,6 +1260,31 @@ export async function getProjectFormsData(projectId: string): Promise<ProjectFor
       responses: Number(utm.responses ?? 0),
       latestTouchAt: utm.latest_touch_at,
     })),
+    recoveryAttempts: (recoveryAttempts.data ?? []).map((attempt) => {
+      const contact = Array.isArray(attempt.contacts)
+        ? attempt.contacts[0]
+        : attempt.contacts;
+      const utm = Array.isArray(attempt.utm_campaigns)
+        ? attempt.utm_campaigns[0]
+        : attempt.utm_campaigns;
+      return {
+        id: attempt.id,
+        status: attempt.status,
+        amount: Number(attempt.amount ?? 0),
+        currency: attempt.currency,
+        offerExternalId: attempt.offer_external_id,
+        checkoutUrl: attempt.checkout_url,
+        firstSeenAt: attempt.first_seen_at,
+        lastSeenAt: attempt.last_seen_at,
+        recoveredAt: attempt.recovered_at,
+        contactName: contact?.name ?? null,
+        contactEmail: contact?.email ?? null,
+        contactPhone: contact?.phone ?? null,
+        utmSource: utm?.utm_source ?? null,
+        utmMedium: utm?.utm_medium ?? null,
+        utmCampaign: utm?.utm_campaign ?? null,
+      };
+    }),
   };
 }
 

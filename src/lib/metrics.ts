@@ -70,7 +70,7 @@ export function calculateFunnel(
 
   return stages.map((stage, index) => {
     const quantity =
-      index === 0 || stage.conversionRate <= 0
+      index === 0
         ? stage.quantity
         : Math.round(
             (mode === "cascade" ? previousQuantity : baseQuantity) *

@@ -81,4 +81,15 @@ describe("calculateFunnel", () => {
     const result = calculateFunnel(stages, "base");
     expect(result.map((stage) => stage.quantity)).toEqual([100, 50, 20]);
   });
+
+  it("zera as vendas com conversao zero mesmo quando existe quantidade anterior", () => {
+    const input = stages.map((stage, index) => index === 1
+      ? { ...stage, quantity: 50, conversionRate: 0 }
+      : stage);
+
+    expect(calculateFunnel(input, "cascade").map((stage) => stage.quantity))
+      .toEqual([100, 0, 0]);
+    expect(calculateFunnel(input, "base").map((stage) => stage.quantity))
+      .toEqual([100, 0, 20]);
+  });
 });

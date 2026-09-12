@@ -94,7 +94,7 @@ export async function POST(
       if (retireError) throw new ApiError("Nao foi possivel arquivar produtos removidos.", 503);
     }
 
-    await admin.from("sync_runs").insert({
+    const { error: syncRunError } = await admin.from("sync_runs").insert({
       organization_id: context.organizationId,
       connection_id: connectionId,
       job_type: "provider_products",
@@ -108,6 +108,9 @@ export async function POST(
         retiredProducts: retiredIds.length,
       },
     });
+    if (syncRunError) {
+      throw new ApiError("Catalogo atualizado, mas nao foi possivel registrar a sincronizacao.", 503);
+    }
 
     const { data: catalog, error: catalogError } = await admin
       .from("products")

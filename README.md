@@ -38,6 +38,13 @@ npm run dev
 
 No Windows, crie `.env.local` a partir de `.env.example` e preencha as variaveis.
 
+Para explorar somente a interface, deixe URL e chave publica do Supabase vazias e
+defina `NEXT_PUBLIC_DEMO_MODE=true` em `.env.local`. A demonstracao precisa ser
+ativada explicitamente, inclusive em desenvolvimento. Ela nao persiste alteracoes.
+
+O diagnostico da estrutura, as limitacoes conhecidas e a ordem proposta para
+concluir o produto estao em [docs/DIAGNOSTICO.md](docs/DIAGNOSTICO.md).
+
 ## Supabase
 
 1. Use um projeto de desenvolvimento ou uma branch antes da producao.
@@ -63,6 +70,8 @@ O projeto existente possui tabelas legadas. A migration nova cria tabelas normal
 | `NEXT_PUBLIC_DEMO_MODE` | Publica | Ativa dados demonstrativos apenas quando definido como `true` |
 
 Nunca adicione `SUPABASE_SECRET_KEY`, tokens Meta ou credenciais de plataformas ao GitHub.
+Se uma chave administrativa ja foi versionada, remove-la do arquivo nao a invalida:
+substitua-a no Supabase e atualize os ambientes que a utilizam.
 
 ## Configuracao Meta
 

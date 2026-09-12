@@ -58,7 +58,10 @@ export async function fetchMetaCollection<T>(
     if (!response.ok) throw await metaApiError(response, errorMessage);
 
     const payload = (await response.json()) as MetaPage<T>;
-    rows.push(...(payload.data ?? []));
+    if (!Array.isArray(payload?.data)) {
+      throw new ApiError("A Meta retornou uma resposta sem uma lista de dados valida.", 502);
+    }
+    rows.push(...payload.data);
     nextUrl = payload.paging?.next ? new URL(payload.paging.next) : null;
   }
 

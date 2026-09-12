@@ -3,9 +3,7 @@ export function getSupabasePublicEnv() {
   const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim();
   const configured = Boolean(url && key);
   const demoMode =
-    !configured &&
-    (process.env.NEXT_PUBLIC_DEMO_MODE === "true" ||
-      process.env.NODE_ENV === "development");
+    !configured && process.env.NEXT_PUBLIC_DEMO_MODE === "true";
 
   return {
     configured,

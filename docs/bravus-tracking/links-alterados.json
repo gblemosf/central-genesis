@@ -1,0 +1,13 @@
+{
+  "date": "2026-09-10",
+  "status": "published; editor save state and public links checked",
+  "changes": [
+    { "pageId": 7028, "widgetId": "8553d17", "before": "https://pay.hotmart.com/V107140616F?off=0phj7mw3&checkoutMode=10", "after": "https://pay.hotmart.com/V107140616F?off=0phj7mw3&checkoutMode=10&xcod=dpaf7028" },
+    { "pageId": 7028, "widgetId": "db5abb8", "before": "https://pay.hotmart.com/V107140616F?off=0phj7mw3&checkoutMode=10", "after": "https://pay.hotmart.com/V107140616F?off=0phj7mw3&checkoutMode=10&xcod=dpaf7028" },
+    { "pageId": 6860, "widgetId": "8553d17", "before": "https://pay.hotmart.com/V107140616F?off=rfbickc5&checkoutMode=10", "after": "https://pay.hotmart.com/V107140616F?off=rfbickc5&checkoutMode=10&xcod=dpaf6860" },
+    { "pageId": 6860, "widgetId": "db5abb8", "before": "https://pay.hotmart.com/V107140616F?checkoutMode=10", "after": "https://pay.hotmart.com/V107140616F?checkoutMode=10&xcod=dpaf6860" },
+    { "pageId": 6869, "widgetId": "32d51f4", "before": "https://pay.hotmart.com/V107140616F?checkoutMode=10", "after": "https://pay.hotmart.com/V107140616F?checkoutMode=10&xcod=dpaf6869" },
+    { "pageId": 6869, "widgetId": "8553d17", "before": "https://pay.hotmart.com/V107140616F?off=rfbickc5&checkoutMode=10", "after": "https://pay.hotmart.com/V107140616F?off=rfbickc5&checkoutMode=10&xcod=dpaf6869" },
+    { "pageId": 6869, "widgetId": "db5abb8", "before": "https://pay.hotmart.com/V107140616F?checkoutMode=10", "after": "https://pay.hotmart.com/V107140616F?checkoutMode=10&xcod=dpaf6869" }
+  ]
+}

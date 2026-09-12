@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(125);
+select plan(141);
 
 insert into auth.users (
   id, instance_id, aud, role, email, encrypted_password,
@@ -586,6 +586,35 @@ select lives_ok(
 );
 reset role;
 select lives_ok(
+  $$select public.set_connection_secret(
+    (select id from public.integration_connections where name = 'Hubla Principal'),
+    '{"version":1,"provider":"hubla","webhookToken":"hubla-token-before-rotation"}'
+  )$$,
+  'Hubla credential creates a route for the shared endpoint'
+);
+select is(
+  public.resolve_hubla_webhook_connection('hubla-token-before-rotation'),
+  (select id from public.integration_connections where name = 'Hubla Principal'),
+  'shared Hubla endpoint resolves the connection from its token'
+);
+select lives_ok(
+  $$select public.set_connection_secret(
+    (select id from public.integration_connections where name = 'Hubla Principal'),
+    '{"version":1,"provider":"hubla","webhookToken":"hubla-token-after-rotation"}'
+  )$$,
+  'Hubla webhook token can be rotated'
+);
+select is(
+  public.resolve_hubla_webhook_connection('hubla-token-before-rotation'),
+  null::uuid,
+  'rotated Hubla token stops resolving immediately'
+);
+select is(
+  public.resolve_hubla_webhook_connection('hubla-token-after-rotation'),
+  (select id from public.integration_connections where name = 'Hubla Principal'),
+  'new Hubla token resolves after rotation'
+);
+select lives_ok(
   $$select * from public.ingest_hubla_webhook(
     (select id from public.integration_connections where name = 'Hubla Principal'),
     'hubla-sandbox-1', 'invoice.payment_succeeded', '2.0.0',
@@ -638,12 +667,87 @@ reset role;
 select ok(
   (select mapped from public.ingest_hubla_webhook(
     (select id from public.integration_connections where name = 'Hubla Principal'),
+    'hubla-abandoned-1', 'lead.abandoned_checkout', '2.0.0',
+    '2026-08-02T11:30:00Z', 'lead-1', 1,
+    'hubla-product-1', 'Produto Hubla', 297, 297, 'BRL', false,
+    jsonb_build_object(
+      'type', 'lead.abandoned_checkout',
+      'contact', jsonb_build_object(
+        'external_id', 'hubla-user-1', 'name', 'Lead Hubla',
+        'email', 'lead-hubla@example.com', 'phone', '+5511999999999'
+      ),
+      'offer', jsonb_build_object('id', 'hubla-offer-1'),
+      'attribution', jsonb_build_object(
+        'landing_url', 'https://pay.hub.la/hubla-offer-1?utm_source=meta',
+        'utm', jsonb_build_object(
+          'source', 'Meta', 'medium', 'Paid Social',
+          'campaign', 'Campanha Hubla', 'content', 'Criativo 1',
+          'term', 'Feed', 'id', 'campaign-id-1'
+        ),
+        'identifiers', jsonb_build_object(
+          'hb_id', 'session-1', 'fbclid', 'click-1', 'src', 'source-1'
+        )
+      )
+    )
+  )),
+  'Hubla abandoned checkout is assigned to the mapped project'
+);
+select is(
+  (select status from public.checkout_recovery_attempts
+   where external_kind = 'lead' and external_id = 'lead-1'),
+  'abandoned',
+  'Hubla abandoned checkout creates a recovery attempt'
+);
+select is(
+  (select amount from public.checkout_recovery_attempts
+   where external_kind = 'lead' and external_id = 'lead-1'),
+  297::numeric,
+  'Hubla abandoned checkout keeps the checkout amount'
+);
+select is(
+  (select source from public.contacts where normalized_email = 'lead-hubla@example.com'),
+  'hubla',
+  'Hubla abandoned checkout creates a project contact'
+);
+select is(
+  (select utm_campaign from public.utm_campaigns
+   where project_id = (select id from public.projects where slug = 'projeto-hubla')),
+  'campanha hubla',
+  'Hubla abandoned checkout creates normalized UTM dimensions'
+);
+select ok(
+  not (select payload ? 'contact'
+       from public.hubla_webhook_events
+       where idempotency_key = 'hubla-abandoned-1'),
+  'Hubla raw event audit does not duplicate recovery contact PII'
+);
+select ok(
+  (select mapped from public.ingest_hubla_webhook(
+    (select id from public.integration_connections where name = 'Hubla Principal'),
     'hubla-sale-2', 'invoice.payment_succeeded', '2.0.0',
     '2026-08-02T12:00:00Z', 'invoice-2', 2,
     'hubla-product-1', 'Produto Hubla', 100, 90, 'BRL', false,
-    '{"type":"invoice.payment_succeeded"}'::jsonb
+    '{"type":"invoice.payment_succeeded","status":"paid","contact":{"external_id":"hubla-user-1","name":"Lead Hubla","email":"lead-hubla@example.com","phone":"+5511999999999"}}'::jsonb
   )),
   'mapped Hubla sale is assigned to the correct project'
+);
+select is(
+  (select status from public.checkout_recovery_attempts
+   where external_kind = 'lead' and external_id = 'lead-1'),
+  'recovered',
+  'Hubla payment marks an earlier checkout from the contact as recovered'
+);
+select ok(
+  (select contact_id is not null from public.sales_events
+   where external_event_id = 'hubla-sale-2'),
+  'Hubla payment attaches the matched contact to the sale'
+);
+select is(
+  (select count(*) from public.sales_contact_attributions attribution
+   join public.sales_events event on event.id = attribution.sales_event_id
+   where event.external_event_id = 'hubla-sale-2'),
+  1::bigint,
+  'Hubla payment creates one last-touch sale attribution'
 );
 select ok(
   (select duplicate from public.ingest_hubla_webhook(
@@ -727,10 +831,19 @@ select is(
   0::bigint,
   'viewer cannot read raw Hubla webhook events'
 );
+select is(
+  (select count(*) from public.checkout_recovery_attempts),
+  0::bigint,
+  'viewer cannot read Hubla recovery contacts'
+);
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000001';
 select ok(
   (select count(*) > 0 from public.hubla_webhook_events),
   'owner can inspect minimized Hubla webhook events'
+);
+select ok(
+  (select count(*) > 0 from public.checkout_recovery_attempts),
+  'owner can inspect Hubla recovery attempts'
 );
 reset role;
 

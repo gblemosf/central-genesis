@@ -382,7 +382,7 @@ export function NewProjectWizard({
     if (demoMode) {
       setHublaEndpoint({
         connectionId: crypto.randomUUID(),
-        endpointUrl: "https://example.supabase.co/functions/v1/hubla-webhook/demo",
+        endpointUrl: "https://example.supabase.co/functions/v1/hubla-webhook",
         tokenStored: false,
       });
       setConnecting(false);

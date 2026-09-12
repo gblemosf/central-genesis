@@ -198,11 +198,30 @@ export interface ProjectUtmAnalytics {
   latestTouchAt: string | null;
 }
 
+export interface ProjectCheckoutRecoveryAttempt {
+  id: string;
+  status: "abandoned" | "pending" | "failed" | "expired" | "recovered";
+  amount: number;
+  currency: string;
+  offerExternalId: string | null;
+  checkoutUrl: string | null;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  recoveredAt: string | null;
+  contactName: string | null;
+  contactEmail: string | null;
+  contactPhone: string | null;
+  utmSource: string | null;
+  utmMedium: string | null;
+  utmCampaign: string | null;
+}
+
 export interface ProjectFormsData {
   connections: GoogleFormsConnectionOption[];
   forms: ProjectGoogleForm[];
   contacts: ProjectContact[];
   utms: ProjectUtmAnalytics[];
+  recoveryAttempts: ProjectCheckoutRecoveryAttempt[];
   warning?: string;
 }
 

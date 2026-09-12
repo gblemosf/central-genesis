@@ -445,10 +445,18 @@ export function ProjectMetricsPanel({
       return;
     }
     setInspectingCsv(true);
-    const preview = inspectMetricsCsv(await file.text());
-    if (sequence !== inspectionSequence.current) return;
-    setMetricsPreview(preview);
-    setInspectingCsv(false);
+    try {
+      const preview = inspectMetricsCsv(await file.text());
+      if (sequence !== inspectionSequence.current) return;
+      setMetricsPreview(preview);
+    } catch {
+      if (sequence === inspectionSequence.current) {
+        setMetricsPreview(null);
+        setMessage("Nao foi possivel ler o arquivo CSV selecionado.");
+      }
+    } finally {
+      if (sequence === inspectionSequence.current) setInspectingCsv(false);
+    }
   }
 
   const dailyDate = (date: string) => {

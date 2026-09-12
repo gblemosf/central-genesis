@@ -106,8 +106,15 @@ Deno.serve(async (request: Request) => {
         const { data: stored, error } = await supabase.rpc("get_connection_secret", {
           p_connection_id: account.connection_id,
         });
-        if (error || typeof stored !== "string") continue;
-        token = accessToken(stored);
+        // Replacement deletes the old period for every supplied account. A missing
+        // credential must abort the project, never turn a failed read into zero spend.
+        if (error || typeof stored !== "string") {
+          return new Response("Meta credential unavailable; existing metrics preserved", { status: 503 });
+        }
+        token = accessToken(stored).trim();
+        if (!token) {
+          return new Response("Meta credential unavailable; existing metrics preserved", { status: 503 });
+        }
         secretByConnection.set(account.connection_id, token);
       }
       const endpoint = new URL(`https://graph.facebook.com/${version}/${account.external_id}/insights`);
@@ -117,23 +124,41 @@ Deno.serve(async (request: Request) => {
       endpoint.searchParams.set("limit", "500");
       endpoint.searchParams.set("time_range", JSON.stringify({ since, until }));
       let next: string | null = endpoint.toString();
-      while (next) {
-        const response = await fetch(next, { headers: { Authorization: `Bearer ${token}` } });
-        if (!response.ok) return new Response("Meta synchronization failed", { status: 502 });
-        const body = objectValue(await response.json());
-        for (const insight of Array.isArray(body.data) ? body.data.map(objectValue) : []) {
-          rows.push({
-            provider_account_id: account.id,
-            metric_date: insight.date_start,
-            investment: Number(insight.spend) || 0,
-            impressions: Number(insight.impressions) || 0,
-            clicks: Number(insight.inline_link_clicks ?? insight.clicks) || 0,
-            page_views: actionValue(insight, ["landing_page_view"]),
-            checkouts: actionValue(insight, ["initiate_checkout", "omni_initiated_checkout"]),
+      const visited = new Set<string>();
+      try {
+        while (next) {
+          const nextUrl = new URL(next);
+          if (nextUrl.protocol !== "https:" || nextUrl.hostname !== "graph.facebook.com" ||
+            (nextUrl.port && nextUrl.port !== "443") || nextUrl.username || nextUrl.password ||
+            visited.has(nextUrl.href) || visited.size >= 100) {
+            return new Response("Invalid Meta pagination; existing metrics preserved", { status: 502 });
+          }
+          visited.add(nextUrl.href);
+          const response = await fetch(nextUrl, {
+            headers: { Authorization: `Bearer ${token}` },
+            signal: AbortSignal.timeout(20_000),
           });
+          if (!response.ok) return new Response("Meta synchronization failed", { status: 502 });
+          const body = objectValue(await response.json());
+          if (!Array.isArray(body.data)) {
+            return new Response("Invalid Meta response; existing metrics preserved", { status: 502 });
+          }
+          for (const insight of body.data.map(objectValue)) {
+            rows.push({
+              provider_account_id: account.id,
+              metric_date: insight.date_start,
+              investment: Number(insight.spend) || 0,
+              impressions: Number(insight.impressions) || 0,
+              clicks: Number(insight.inline_link_clicks ?? insight.clicks) || 0,
+              page_views: actionValue(insight, ["landing_page_view"]),
+              checkouts: actionValue(insight, ["initiate_checkout", "omni_initiated_checkout"]),
+            });
+          }
+          const paging = objectValue(body.paging);
+          next = typeof paging.next === "string" ? paging.next : null;
         }
-        const paging = objectValue(body.paging);
-        next = typeof objectValue(paging).next === "string" ? String(paging.next) : null;
+      } catch {
+        return new Response("Meta synchronization failed; existing metrics preserved", { status: 502 });
       }
     }
     const { data: count, error } = await supabase.rpc("replace_meta_metrics", {

@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { GenesisLogo } from "@/components/genesis-logo";
+import { SignOutButton } from "@/components/sign-out-button";
 import { cn } from "@/lib/utils";
 
 const navigation = [
@@ -125,6 +126,7 @@ export function AppShell({ children, userLabel, demoMode }: AppShellProps) {
               <p className="text-[10px] text-white/35">Administrador</p>
             </div>
           </div>
+          {!demoMode && <SignOutButton />}
         </div>
       </aside>
 

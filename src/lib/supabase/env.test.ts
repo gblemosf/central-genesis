@@ -15,12 +15,22 @@ describe("getSupabasePublicEnv", () => {
     expect(getSupabasePublicEnv().demoMode).toBe(false);
   });
 
-  it("ativa demonstracao local somente sem Supabase", () => {
+  it("ativa demonstracao somente quando solicitada e sem Supabase", () => {
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "");
     vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("NEXT_PUBLIC_DEMO_MODE", "true");
 
     expect(getSupabasePublicEnv().demoMode).toBe(true);
+  });
+
+  it.each(["false", ""])("nao ativa demonstracao implicitamente com a opcao %s", (mode) => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "");
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("NEXT_PUBLIC_DEMO_MODE", mode);
+
+    expect(getSupabasePublicEnv().demoMode).toBe(false);
   });
 
   it("exige URL e publishable key para considerar a conexao pronta", () => {

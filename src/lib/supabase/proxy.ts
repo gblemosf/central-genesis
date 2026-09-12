@@ -4,23 +4,23 @@ import { getSupabasePublicEnv } from "@/lib/supabase/env";
 
 export async function updateSession(request: NextRequest) {
   const env = getSupabasePublicEnv();
-  const publicPaths = ["/privacy", "/terms", "/data-deletion"];
-  const isPublicRoute =
-    request.nextUrl.pathname.startsWith("/login") ||
-    request.nextUrl.pathname.startsWith("/auth") ||
-    request.nextUrl.pathname.startsWith("/api/webhooks") ||
-    publicPaths.some(
-      (path) =>
-        request.nextUrl.pathname === path ||
-        request.nextUrl.pathname.startsWith(`${path}/`),
-    );
+  const pathname = request.nextUrl.pathname;
+  const publicPaths = ["/login", "/auth", "/api/webhooks", "/privacy", "/terms", "/data-deletion"];
+  const isPublicRoute = publicPaths.some(
+    (path) => pathname === path || pathname.startsWith(`${path}/`),
+  );
+  // Provider webhooks authenticate themselves and must not depend on Supabase Auth.
+  if (isPublicRoute) return NextResponse.next({ request });
+
+  const isApiRoute = pathname === "/api" || pathname.startsWith("/api/");
+  const loginUrl = new URL("/login", request.url);
   if (!env.configured) {
-    if (env.demoMode || isPublicRoute) {
-      return NextResponse.next({ request });
+    if (isApiRoute) {
+      return NextResponse.json({ error: "Supabase nao configurado." }, { status: 503 });
     }
-    const url = request.nextUrl.clone();
-    url.pathname = "/login";
-    return NextResponse.redirect(url);
+    return env.demoMode
+      ? NextResponse.next({ request })
+      : NextResponse.redirect(loginUrl);
   }
 
   let response = NextResponse.next({ request });
@@ -44,10 +44,16 @@ export async function updateSession(request: NextRequest) {
 
   const { data } = await supabase.auth.getClaims();
 
-  if (!data?.claims && !isPublicRoute) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/login";
-    return NextResponse.redirect(url);
+  if (!data?.claims) {
+    const denied = isApiRoute
+      ? NextResponse.json({ error: "Sessao invalida. Entre novamente." }, { status: 401 })
+      : NextResponse.redirect(loginUrl);
+    response.cookies.getAll().forEach((cookie) => denied.cookies.set(cookie));
+    for (const header of ["cache-control", "expires", "pragma"]) {
+      const value = response.headers.get(header);
+      if (value) denied.headers.set(header, value);
+    }
+    return denied;
   }
 
   return response;

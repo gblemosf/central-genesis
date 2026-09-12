@@ -158,12 +158,12 @@ export function IntegrationsManager({
                   businessId: form.businessId || undefined,
                   appId: form.appId || undefined,
                   systemUserId: form.systemUserId || undefined,
-                   status: Object.keys(credentialsFromForm(form)).length
-                     ? "attention"
-                     : connection.status,
-                   lastVerifiedAt: Object.keys(credentialsFromForm(form)).length
-                     ? null
-                     : connection.lastVerifiedAt,
+                  status: Object.keys(credentialsFromForm(form)).length
+                    ? "attention"
+                    : connection.status,
+                  lastVerifiedAt: Object.keys(credentialsFromForm(form)).length
+                    ? null
+                    : connection.lastVerifiedAt,
                 }
               : connection,
           ),
@@ -179,9 +179,9 @@ export function IntegrationsManager({
         name: form.name || `${providerLabels[form.provider]} sem nome`,
         provider: form.provider,
         status: "connected",
-         businessId: form.businessId || undefined,
-         accountCount: 0,
-         productCount: 0,
+        businessId: form.businessId || undefined,
+        accountCount: 0,
+        productCount: 0,
         lastVerifiedAt: new Date().toISOString(),
       };
       await new Promise((resolve) => setTimeout(resolve, 450));
@@ -192,87 +192,91 @@ export function IntegrationsManager({
       return;
     }
 
-    const response = await fetch(
-      editingConnectionId
-        ? `/api/connections/${editingConnectionId}`
-        : "/api/connections",
-      {
-        method: editingConnectionId ? "PATCH" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: form.name,
-          ...(editingConnectionId ? {} : { provider: form.provider }),
-          businessId: form.businessId || null,
-          appId: form.appId || null,
-          systemUserId: form.systemUserId || null,
-          ...(Object.keys(credentialsFromForm(form)).length
-            ? { credentials: credentialsFromForm(form) }
-            : {}),
-        }),
-      },
-    );
-    const body = (await response.json().catch(() => null)) as
-      | { data?: IntegrationConnection; error?: string }
-      | null;
-
-    if (!response.ok || !body?.data) {
-      setMessage(body?.error ?? "Nao foi possivel salvar a conexao.");
-      setBusyId(null);
-      return;
-    }
-
-    const verification = await fetch(`/api/connections/${body.data.id}/verify`, {
-      method: "POST",
-    });
-    const verificationBody = (await verification.json().catch(() => null)) as
-      | { error?: string; mode?: "remote" | "webhook"; confirmed?: boolean }
-      | null;
-    const confirmed = verification.ok && verificationBody?.confirmed !== false;
-    let productCount = editingConnectionId
-      ? connections.find((connection) => connection.id === editingConnectionId)?.productCount ?? 0
-      : 0;
-    let syncError = "";
-    if (verification.ok && catalogProviders.includes(body.data.provider)) {
-      const sync = await fetch(`/api/connections/${body.data.id}/products`, { method: "POST" });
-      const syncBody = (await sync.json().catch(() => null)) as
-        | { products?: number; error?: string }
+    try {
+      const response = await fetch(
+        editingConnectionId
+          ? `/api/connections/${editingConnectionId}`
+          : "/api/connections",
+        {
+          method: editingConnectionId ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: form.name,
+            ...(editingConnectionId ? {} : { provider: form.provider }),
+            businessId: form.businessId || null,
+            appId: form.appId || null,
+            systemUserId: form.systemUserId || null,
+            ...(Object.keys(credentialsFromForm(form)).length
+              ? { credentials: credentialsFromForm(form) }
+              : {}),
+          }),
+        },
+      );
+      const body = (await response.json().catch(() => null)) as
+        | { data?: IntegrationConnection; error?: string }
         | null;
-      if (sync.ok) productCount = syncBody?.products ?? productCount;
-      else syncError = syncBody?.error ?? "Conexao validada, mas o catalogo nao foi sincronizado.";
-    }
-    const savedConnection = {
-      ...body.data,
-      status: confirmed ? ("connected" as const) : ("attention" as const),
-      lastVerifiedAt: confirmed ? new Date().toISOString() : null,
-      productCount,
-    };
-    setConnections((current) =>
-      editingConnectionId
-        ? current.map((connection) =>
-            connection.id === editingConnectionId
-              ? { ...connection, ...savedConnection, accountCount: connection.accountCount }
-              : connection,
-          )
-        : [...current, savedConnection],
-    );
-    const wasEditing = Boolean(editingConnectionId);
-    closeForm();
-    setBusyId(null);
-    if (!verification.ok) {
-      setMessage(
-        verificationBody?.error ??
-          "Credenciais armazenadas, mas a plataforma recusou a verificacao.",
+
+      if (!response.ok || !body?.data) {
+        setMessage(body?.error ?? "Nao foi possivel salvar a conexao.");
+        return;
+      }
+
+      const verification = await fetch(`/api/connections/${body.data.id}/verify`, {
+        method: "POST",
+      });
+      const verificationBody = (await verification.json().catch(() => null)) as
+        | { error?: string; mode?: "remote" | "webhook"; confirmed?: boolean }
+        | null;
+      const confirmed = verification.ok && verificationBody?.confirmed !== false;
+      let productCount = editingConnectionId
+        ? connections.find((connection) => connection.id === editingConnectionId)?.productCount ?? 0
+        : 0;
+      let syncError = "";
+      if (verification.ok && catalogProviders.includes(body.data.provider)) {
+        const sync = await fetch(`/api/connections/${body.data.id}/products`, { method: "POST" });
+        const syncBody = (await sync.json().catch(() => null)) as
+          | { products?: number; error?: string }
+          | null;
+        if (sync.ok) productCount = syncBody?.products ?? productCount;
+        else syncError = syncBody?.error ?? "Conexao validada, mas o catalogo nao foi sincronizado.";
+      }
+      const savedConnection = {
+        ...body.data,
+        status: confirmed ? ("connected" as const) : ("attention" as const),
+        lastVerifiedAt: confirmed ? new Date().toISOString() : null,
+        productCount,
+      };
+      setConnections((current) =>
+        editingConnectionId
+          ? current.map((connection) =>
+              connection.id === editingConnectionId
+                ? { ...connection, ...savedConnection, accountCount: connection.accountCount }
+                : connection,
+            )
+          : [...current, savedConnection],
       );
-    } else if (syncError) {
-      setMessage(syncError);
-    } else if (body.data.provider === "hubla") {
-      setMessage("Webhook Hubla configurado. A confirmacao remota ocorrera no primeiro evento.");
-    } else {
-      setMessage(
-        wasEditing
-          ? "Conexao atualizada, verificada e catalogo sincronizado."
-          : "Conexao verificada e credenciais armazenadas no cofre.",
-      );
+      const wasEditing = Boolean(editingConnectionId);
+      closeForm();
+      if (!verification.ok) {
+        setMessage(
+          verificationBody?.error ??
+            "Credenciais armazenadas, mas a plataforma recusou a verificacao.",
+        );
+      } else if (syncError) {
+        setMessage(syncError);
+      } else if (body.data.provider === "hubla") {
+        setMessage("Webhook Hubla configurado. A confirmacao remota ocorrera no primeiro evento.");
+      } else {
+        setMessage(
+          wasEditing
+            ? "Conexao atualizada, verificada e catalogo sincronizado."
+            : "Conexao verificada e credenciais armazenadas no cofre.",
+        );
+      }
+    } catch {
+      setMessage("Falha de rede ao salvar ou verificar a conexao.");
+    } finally {
+      setBusyId(null);
     }
   }
 
@@ -296,32 +300,37 @@ export function IntegrationsManager({
       return;
     }
 
-    const response = await fetch(`/api/connections/${connectionId}/verify`, {
-      method: "POST",
-    });
-    const body = (await response.json().catch(() => null)) as
-      | { confirmed?: boolean; error?: string }
-      | null;
-    const confirmed = response.ok && body?.confirmed !== false;
-    setConnections((current) =>
-      current.map((connection) =>
-        connection.id === connectionId
-          ? {
-              ...connection,
-              status: confirmed ? "connected" : "attention",
-              lastVerifiedAt: confirmed ? new Date().toISOString() : null,
-            }
-          : connection,
-      ),
-    );
-    setMessage(
-      confirmed
-        ? "Conexao verificada com sucesso."
-        : response.ok
-          ? "Token salvo, mas nenhum webhook valido foi recebido ainda."
-          : body?.error ?? "A verificacao falhou. Consulte o status da credencial.",
-    );
-    setBusyId(null);
+    try {
+      const response = await fetch(`/api/connections/${connectionId}/verify`, {
+        method: "POST",
+      });
+      const body = (await response.json().catch(() => null)) as
+        | { confirmed?: boolean; error?: string }
+        | null;
+      const confirmed = response.ok && body?.confirmed !== false;
+      setConnections((current) =>
+        current.map((connection) =>
+          connection.id === connectionId
+            ? {
+                ...connection,
+                status: confirmed ? "connected" : "attention",
+                lastVerifiedAt: confirmed ? new Date().toISOString() : null,
+              }
+            : connection,
+        ),
+      );
+      setMessage(
+        confirmed
+          ? "Conexao verificada com sucesso."
+          : response.ok
+            ? "Token salvo, mas nenhum webhook valido foi recebido ainda."
+            : body?.error ?? "A verificacao falhou. Consulte o status da credencial.",
+      );
+    } catch {
+      setMessage("Falha de rede ao verificar a conexao.");
+    } finally {
+      setBusyId(null);
+    }
   }
 
   async function discoverAccounts(connectionId: string) {
@@ -341,31 +350,36 @@ export function IntegrationsManager({
       return;
     }
 
-    const response = await fetch(`/api/connections/${connectionId}/accounts`, {
-      method: "POST",
-    });
-    const body = (await response.json().catch(() => null)) as
-      | { accounts?: number; unassignedAccounts?: number; error?: string }
-      | null;
-    if (response.ok) {
-      const assignedAccounts = body?.accounts ?? 0;
-      const unassignedAccounts = body?.unassignedAccounts ?? 0;
-      setConnections((current) =>
-        current.map((connection) =>
-          connection.id === connectionId
-            ? { ...connection, accountCount: assignedAccounts }
-            : connection,
-        ),
-      );
-      setMessage(
-        unassignedAccounts > 0
-          ? `${assignedAccounts} conta(s) atribuida(s) ao System User. A Meta mostrou pelo menos ${unassignedAccounts} outra(s) conta(s) no BM sem essa atribuicao.`
-          : `${assignedAccounts} conta(s) Meta atribuida(s) ao System User.`,
-      );
-    } else {
-      setMessage(body?.error ?? "Nao foi possivel descobrir as contas Meta.");
+    try {
+      const response = await fetch(`/api/connections/${connectionId}/accounts`, {
+        method: "POST",
+      });
+      const body = (await response.json().catch(() => null)) as
+        | { accounts?: number; unassignedAccounts?: number; error?: string }
+        | null;
+      if (response.ok) {
+        const assignedAccounts = body?.accounts ?? 0;
+        const unassignedAccounts = body?.unassignedAccounts ?? 0;
+        setConnections((current) =>
+          current.map((connection) =>
+            connection.id === connectionId
+              ? { ...connection, accountCount: assignedAccounts }
+              : connection,
+          ),
+        );
+        setMessage(
+          unassignedAccounts > 0
+            ? `${assignedAccounts} conta(s) atribuida(s) ao System User. A Meta mostrou pelo menos ${unassignedAccounts} outra(s) conta(s) no BM sem essa atribuicao.`
+            : `${assignedAccounts} conta(s) Meta atribuida(s) ao System User.`,
+        );
+      } else {
+        setMessage(body?.error ?? "Nao foi possivel descobrir as contas Meta.");
+      }
+    } catch {
+      setMessage("Falha de rede ao descobrir as contas Meta.");
+    } finally {
+      setBusyId(null);
     }
-    setBusyId(null);
   }
 
   async function syncProducts(connectionId: string) {
@@ -385,50 +399,59 @@ export function IntegrationsManager({
       return;
     }
 
-    const response = await fetch(`/api/connections/${connectionId}/products`, {
-      method: "POST",
-    });
-    const body = (await response.json().catch(() => null)) as
-      | { products?: number; error?: string }
-      | null;
-    if (response.ok) {
-      setConnections((current) =>
-        current.map((connection) =>
-          connection.id === connectionId
-            ? { ...connection, productCount: body?.products ?? connection.productCount }
-            : connection,
-        ),
-      );
-      setMessage(`${body?.products ?? 0} produto(s) sincronizado(s).`);
-    } else {
-      setMessage(body?.error ?? "Nao foi possivel sincronizar o catalogo.");
+    try {
+      const response = await fetch(`/api/connections/${connectionId}/products`, {
+        method: "POST",
+      });
+      const body = (await response.json().catch(() => null)) as
+        | { products?: number; error?: string }
+        | null;
+      if (response.ok) {
+        setConnections((current) =>
+          current.map((connection) =>
+            connection.id === connectionId
+              ? { ...connection, productCount: body?.products ?? connection.productCount }
+              : connection,
+          ),
+        );
+        setMessage(`${body?.products ?? 0} produto(s) sincronizado(s).`);
+      } else {
+        setMessage(body?.error ?? "Nao foi possivel sincronizar o catalogo.");
+      }
+    } catch {
+      setMessage("Falha de rede ao sincronizar o catalogo.");
+    } finally {
+      setBusyId(null);
     }
-    setBusyId(null);
   }
 
   async function revokeConnection(connectionId: string) {
     if (!window.confirm("Revogar e apagar a credencial armazenada?")) return;
     setBusyId(connectionId);
-    if (!demoMode) {
-      const response = await fetch(`/api/connections/${connectionId}/credentials`, {
-        method: "DELETE",
-      });
-      if (!response.ok) {
-        setMessage("Nao foi possivel revogar a credencial.");
-        setBusyId(null);
-        return;
+    try {
+      if (!demoMode) {
+        const response = await fetch(`/api/connections/${connectionId}/credentials`, {
+          method: "DELETE",
+        });
+        if (!response.ok) {
+          setMessage("Nao foi possivel revogar a credencial.");
+          return;
+        }
       }
-    }
 
-    setConnections((current) =>
-      current.map((connection) =>
-        connection.id === connectionId
-          ? { ...connection, status: "revoked", lastVerifiedAt: null }
-          : connection,
-      ),
-    );
-    setMessage("Credencial revogada e removida do cofre.");
-    setBusyId(null);
+      setConnections((current) =>
+        current.map((connection) =>
+          connection.id === connectionId
+            ? { ...connection, status: "revoked", lastVerifiedAt: null }
+            : connection,
+        ),
+      );
+      setMessage("Credencial revogada e removida do cofre.");
+    } catch {
+      setMessage("Falha de rede ao revogar a credencial.");
+    } finally {
+      setBusyId(null);
+    }
   }
 
   async function deleteConnection(connectionId: string) {
@@ -436,25 +459,29 @@ export function IntegrationsManager({
     setBusyId(connectionId);
     setMessage("");
 
-    if (!demoMode) {
-      const response = await fetch(`/api/connections/${connectionId}`, {
-        method: "DELETE",
-      });
-      const body = (await response.json().catch(() => null)) as
-        | { error?: string }
-        | null;
-      if (!response.ok) {
-        setMessage(body?.error ?? "Nao foi possivel excluir a conexao.");
-        setBusyId(null);
-        return;
+    try {
+      if (!demoMode) {
+        const response = await fetch(`/api/connections/${connectionId}`, {
+          method: "DELETE",
+        });
+        const body = (await response.json().catch(() => null)) as
+          | { error?: string }
+          | null;
+        if (!response.ok) {
+          setMessage(body?.error ?? "Nao foi possivel excluir a conexao.");
+          return;
+        }
       }
-    }
 
-    setConnections((current) =>
-      current.filter((connection) => connection.id !== connectionId),
-    );
-    setMessage("Conexao excluida definitivamente.");
-    setBusyId(null);
+      setConnections((current) =>
+        current.filter((connection) => connection.id !== connectionId),
+      );
+      setMessage("Conexao excluida definitivamente.");
+    } catch {
+      setMessage("Falha de rede ao excluir a conexao.");
+    } finally {
+      setBusyId(null);
+    }
   }
 
   return (
@@ -556,10 +583,10 @@ export function IntegrationsManager({
                   <span className="mb-2 block text-[var(--muted)]">Endpoint Hubla</span>
                   <button
                     type="button"
-                    onClick={() => navigator.clipboard.writeText(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/hubla-webhook/${connection.id}`)}
+                    onClick={() => navigator.clipboard.writeText(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/hubla-webhook`)}
                     className="flex w-full items-center justify-between gap-2 rounded-lg bg-black/5 px-3 py-2 text-left font-bold"
                   >
-                    <span className="truncate">Copiar URL do webhook</span>
+                    <span className="truncate">Copiar endpoint geral Hubla</span>
                     <Copy size={13} className="shrink-0" />
                   </button>
                 </div>

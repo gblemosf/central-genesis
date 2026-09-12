@@ -1,0 +1,93 @@
+<script>
+(function () {
+  'use strict';
+
+  // Identifica as três páginas; o n8n converte esse código na URL pública.
+  const pageCodes = {
+    '/operacao-farda-v1-h1/': 'dpaf6373',
+    '/da-prova-a-farda-v2h1/': 'dpaf6860',
+    '/da-prova-a-farda-v1h6/': 'dpaf6869'
+  };
+  const pagePath = window.location.pathname.replace(/\/?$/, '/');
+  const pageCode = pageCodes[pagePath];
+  if (!pageCode) return;
+
+  // Mantém a ordem histórica do SCK e o mapeamento confirmado no n8n:
+  // Source | Medium | Campaign | Content | Term | ID.
+  // Neste fluxo, a posição 4 vem de utm_term, a 5 de utm_content e a 6 de fbclid.
+  const sckKeys = [
+    'utm_source', 'utm_medium', 'utm_campaign',
+    'utm_term', 'utm_content', 'fbclid'
+  ];
+  const trackedKeys = sckKeys.concat('utm_id');
+  const current = new URLSearchParams(window.location.search);
+  const hasCurrentTracking = sckKeys.some(key => current.get(key));
+
+  // Preserva posições vazias; pipes dentro dos nomes recebem espaços.
+  const sck = hasCurrentTracking
+    ? sckKeys.map(key => (current.get(key) || '').replace(/\s*\|\s*/g, ' | ')).join('|')
+    : current.get('sck') || '';
+
+  function getCookie(name) {
+    try {
+      const prefix = name + '=';
+      const item = document.cookie.split(';').map(value => value.trim())
+        .find(value => value.indexOf(prefix) === 0);
+      if (!item) return '';
+      try { return decodeURIComponent(item.slice(prefix.length)); }
+      catch (_) { return item.slice(prefix.length); }
+    } catch (_) { return ''; }
+  }
+
+  const fbclid = current.get('fbclid') || '';
+  const existingFbc = getCookie('_fbc');
+  const fbc = fbclid
+    ? (existingFbc.endsWith('.' + fbclid)
+      ? existingFbc
+      : 'fb.1.' + Date.now() + '.' + fbclid)
+    : existingFbc;
+
+  function decorateLink(link) {
+    if (!link || !link.getAttribute('href')) return;
+    let url;
+    try { url = new URL(link.getAttribute('href'), window.location.href); }
+    catch (_) { return; }
+
+    // Só modifica links oficiais do checkout.
+    if (url.hostname !== 'pay.hotmart.com' || url.protocol !== 'https:') return;
+
+    trackedKeys.forEach(key => {
+      const value = current.get(key);
+      if (value) url.searchParams.set(key, value);
+    });
+    const fbp = getCookie('_fbp');
+    if (fbp) url.searchParams.set('fbp', fbp);
+    if (fbc) url.searchParams.set('fbc', fbc);
+    if (sck) url.searchParams.set('sck', sck);
+    url.searchParams.set('xcod', pageCode);
+
+    const nextHref = url.toString();
+    if (link.href !== nextHref) link.href = nextHref;
+  }
+
+  function decorateHotmartLinks() {
+    document.querySelectorAll('a[href]').forEach(decorateLink);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', decorateHotmartLinks);
+  } else {
+    decorateHotmartLinks();
+  }
+
+  // Também cobre botões inseridos depois do carregamento, sem duplicar parâmetros.
+  ['pointerdown', 'click', 'auxclick', 'contextmenu'].forEach(eventName => {
+    document.addEventListener(eventName, function (event) {
+      const target = event.target;
+      if (target && typeof target.closest === 'function') {
+        decorateLink(target.closest('a[href]'));
+      }
+    }, true);
+  });
+})();
+</script>

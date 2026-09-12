@@ -38,6 +38,8 @@ const migrations = [
   ["20260804143631", "Formularios, contatos e UTMs"],
   ["20260804191134", "Ajustes runtime do Google Forms"],
   ["20260811123241", "Normalizacao da importacao diaria por CSV"],
+  ["20260911163137", "Recuperacao de checkout Hubla"],
+  ["20260911170021", "Endpoint geral Hubla"],
 ] as const;
 
 const databaseRequirements = [
@@ -47,6 +49,7 @@ const databaseRequirements = [
   { table: "traffic_metrics_daily", column: "id", label: "Trafego Meta" },
   { table: "sales_events", column: "id", label: "Eventos de venda" },
   { table: "hubla_webhook_events", column: "id", label: "Webhooks Hubla" },
+  { table: "checkout_recovery_attempts", column: "id", label: "Recuperacao Hubla" },
   { table: "project_daily_metrics", column: "project_id", label: "Metricas consolidadas" },
   { table: "project_csv_daily_metrics", column: "project_id", label: "Metricas CSV normalizadas" },
   { table: "metric_imports", column: "id", label: "Historico de importacoes" },

@@ -33,7 +33,7 @@ export async function POST(request: Request) {
           accountCount: 0,
           productCount: 0,
           lastVerifiedAt: null,
-          endpointUrl: `${supabaseUrl}/functions/v1/hubla-webhook/${data.id}`,
+          endpointUrl: `${supabaseUrl}/functions/v1/hubla-webhook`,
         },
       },
       { status: 201 },
