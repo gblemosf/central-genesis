@@ -41,7 +41,7 @@ jobs:
       - uses: supabase/setup-cli@v1
         if: steps.credentials.outputs.ready == 'true'
         with:
-          version: 2.104.0
+          version: 2.117.0
 
       - name: Link production project
         if: steps.credentials.outputs.ready == 'true'
