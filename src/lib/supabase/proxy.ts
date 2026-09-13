@@ -10,7 +10,7 @@ export async function updateSession(request: NextRequest) {
     (path) => pathname === path || pathname.startsWith(`${path}/`),
   );
   // Webhooks and the scheduled Forms job authenticate themselves with dedicated tokens.
-  if (isPublicRoute || pathname === "/about" || pathname === "/api/jobs/google-forms") return NextResponse.next({ request });
+  if (isPublicRoute || pathname === "/about" || pathname === "/api/jobs/google-forms" || pathname === "/api/jobs/hotmart-history") return NextResponse.next({ request });
 
   const isApiRoute = pathname === "/api" || pathname.startsWith("/api/");
   const loginUrl = new URL("/login", request.url);

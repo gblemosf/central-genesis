@@ -55,3 +55,20 @@ Contatos são relacionados por e-mail ou telefone no mesmo projeto. Conflitos en
 Migrations: `20260913010155_project_operations_workspace.sql` e `20260913014322_google_forms_job_vault_auth.sql`. Publicar também `hubla-webhook` e a aplicação Next.js. O receptor Hotmart em uso continua sendo a rota da aplicação; a antiga Edge Function Hotmart está desativada.
 
 Verificações: testes unitários/API, testes SQL de isolamento, idempotência e preservação das perguntas, verificação de tipos, lint e build. A conferência visual usa dados fictícios locais, sem registrar vendas de teste em produção.
+# Histórico Hotmart por produto e período
+
+Em **Projeto → Vendas → Importar histórico da Hotmart**, selecione um produto já vinculado na aba Produtos e as datas inicial e final (dias completos em America/Sao_Paulo). A conexão utiliza a credencial Hotmart já guardada no servidor. Não há credencial nova no navegador.
+
+A fila persiste o progresso no Supabase, divide o período em janelas de 30 dias e percorre os estados de compra e a paginação da Hotmart. O processo continua com a tela fechada. Falhas temporárias são tentadas até três vezes; a tela permite retomar do último lote confirmado. Repetir períodos não duplica transações, contatos ou atribuições. O vínculo do produto é estendido até a data solicitada somente quando não invade um vínculo histórico existente.
+
+Compras aprovadas/concluídas são materializadas nas telas Vendas, Origens, Contatos e Resultados. O histórico consultado também apresenta pendências, cancelamentos e estornos, com exportação da página em CSV. Importações antigas não substituem campos mais completos já recebidos pelos webhooks. A identificação de produto, projeto e moeda é validada antes de confirmar o lote.
+
+- Valores separados: bruto, taxa na mesma moeda da compra, líquido após taxa e comissão do produtor. Comissões de coprodutores e moedas diferentes não são somadas ao produtor. Ausência de valores aparece como “Não informado”.
+- Origens: SCK, código externo, SRC original, página reconhecida e UTMs extraíveis; nomes de campanha com separadores são preservados pelo parser existente. A API não recompõe dados que nunca foram capturados.
+- Recuperação: uma pendência observada antes da aprovação pode ser marcada como recuperada pela próxima consulta ou pelo webhook. Uma venda já aprovada na primeira consulta não prova recuperação.
+- Estornos: o estado atual da API não fornece aqui a data contábil nem o valor efetivo de um reembolso parcial. Esses dados não são inventados. Uma compra com estorno pendente de conciliação fica fora da receita reconhecida; os detalhes continuam no histórico. O evento real de reembolso permite conciliar o lançamento original e sua reversão. Na visão operacional, totais líquidos com estorno parcial ficam desconhecidos.
+- O período de consulta segue os filtros da Hotmart; na apresentação há datas separadas para pedido, aprovação e consulta. Uma aprovação pode ocorrer em um dia diferente do pedido.
+
+Publicação: aplicar `20260913112444_hotmart_history_imports.sql`, publicar o app e executar `scripts/activate-hotmart-history.sql`. Este último cria apenas o segredo dedicado no Vault e o cron `genesis-hotmart-history`, que chama `POST /api/jobs/hotmart-history` a cada minuto. A rota valida esse segredo e não usa a sessão do navegador. Nenhum fluxo do n8n é desativado.
+
+Contratos consultados: [histórico](https://developers.hotmart.com/docs/en/v1/sales/sales-history/), [comissões](https://developers.hotmart.com/docs/en/v1/sales/sales-commissions/). A resposta real das comissões usa `commission.currency_code`; o normalizador também aceita `currency_value` da documentação e dos webhooks.

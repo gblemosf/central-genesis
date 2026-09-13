@@ -55,7 +55,7 @@ function numberValue(value: unknown, fallback = 0) {
   return Number.isFinite(numeric) && numeric >= 0 ? numeric : fallback;
 }
 
-async function hotmartAccessToken(credentials: ProviderCredentialFields) {
+export async function hotmartAccessToken(credentials: ProviderCredentialFields) {
   if (!credentials.clientId || !credentials.clientSecret || !credentials.basicToken) {
     throw new Error("Credenciais OAuth da Hotmart incompletas.");
   }

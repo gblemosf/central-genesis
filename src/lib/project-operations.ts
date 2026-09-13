@@ -15,7 +15,7 @@ export interface SaleRow {
   product: string;
   occurredAt: string;
   receivedAt: string;
-  status: "paid" | "refunded";
+  status: "paid" | "refunded" | "reversed" | "partial_refund";
   contactId: string | null;
   name: string;
   email: string;
@@ -138,7 +138,8 @@ export function saleFromRecord(row: Record<string, unknown>): SaleRow {
 }
 
 export function recoveryFromRecord(row: Record<string, unknown>): RecoveryRow {
-  const contact = relation(row.contacts),
+  const metadata = record(row.metadata);
+  const contact = { ...record(metadata.contact), ...relation(row.contacts) },
     campaign = relation(row.utm_campaigns);
   return {
     id: text(row.id),
@@ -151,15 +152,26 @@ export function recoveryFromRecord(row: Record<string, unknown>): RecoveryRow {
     status: text(row.status),
     amount: amount(row.amount) ?? 0,
     currency: text(row.currency),
-    source: text(campaign.utm_source),
-    campaign: text(campaign.utm_campaign),
+    source: text(
+      campaign.utm_source || record(record(metadata.attribution).utm).source,
+    ),
+    campaign: text(
+      campaign.utm_campaign ||
+        record(record(metadata.attribution).utm).campaign,
+    ),
     checkoutUrl: safeWebUrl(row.checkout_url),
     lastSeenAt: text(row.last_seen_at),
   };
 }
 
 export function summarizeSales(sales: SaleRow[], currency: string) {
-  const rows = sales.filter((sale) => sale.currency === currency);
+  const partialUnknown = sales.some(
+    (sale) => sale.currency === currency && sale.status === "partial_refund",
+  );
+  const rows = sales.filter(
+    (sale) =>
+      sale.currency === currency && ["paid", "refunded"].includes(sale.status),
+  );
   const paid = rows.filter((sale) => sale.status === "paid");
   const refundedTransactions = new Set(
     rows
@@ -176,7 +188,7 @@ export function summarizeSales(sales: SaleRow[], currency: string) {
       .filter(Boolean),
   );
   const knownTotal = (key: "fee" | "afterFees" | "payout") =>
-    rows.every((sale) => sale[key] !== null)
+    !partialUnknown && rows.every((sale) => sale[key] !== null)
       ? Math.round(
           rows.reduce((sum, sale) => sum + (sale[key] ?? 0), 0) * 100,
         ) / 100

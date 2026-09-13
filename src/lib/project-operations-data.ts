@@ -44,7 +44,7 @@ export async function loadProjectOperations(
       .select(columns)
       .eq("organization_id", organizationId)
       .eq("project_id", projectId);
-  const [sales, contacts, recovery, project] = await Promise.all([
+  const [sales, contacts, recovery, project, history] = await Promise.all([
     readAllRows((from, to) =>
       scoped(
         "sales_events",
@@ -74,7 +74,7 @@ export async function loadProjectOperations(
     readAllRows((from, to) =>
       scoped(
         "checkout_recovery_attempts",
-        "id,contact_id,status,amount,currency,checkout_url,last_seen_at,contacts(name,email,phone),utm_campaigns(utm_source,utm_campaign),products(name),integration_connections(provider)",
+        "id,contact_id,status,amount,currency,checkout_url,last_seen_at,metadata,contacts(name,email,phone),utm_campaigns(utm_source,utm_campaign),products(name),integration_connections(provider)",
       )
         .gte("last_seen_at", `${start}T00:00:00-03:00`)
         .lt("last_seen_at", `${end}T00:00:00-03:00`)
@@ -88,11 +88,58 @@ export async function loadProjectOperations(
       .eq("id", projectId)
       .eq("organization_id", organizationId)
       .single(),
+    readAllRows((from, to) =>
+      scoped("hotmart_history_records", "*")
+        .in("purchase_status", ["REFUNDED", "CHARGEBACK", "PARTIALLY_REFUNDED"])
+        .order("id")
+        .range(from, to),
+    ),
   ]);
   if (project.error)
     throw new ApiError("Não foi possível consultar a moeda do projeto.", 503);
+  const saleRows = sales.map(saleFromRecord);
+  const key = (connection: string, transaction: string) =>
+    `${connection}:${transaction}`;
+  const actualRefunds = new Set(
+    saleRows
+      .filter((row) => row.status === "refunded")
+      .map((row) => key(row.connectionId, row.transaction)),
+  );
+  for (const snapshot of history) {
+    const transactionKey = key(
+      text(snapshot.connection_id),
+      text(snapshot.transaction_id),
+    );
+    if (actualRefunds.has(transactionKey)) continue;
+    let sale = saleRows.find(
+      (row) => key(row.connectionId, row.transaction) === transactionKey,
+    );
+    if (!sale) {
+      const occurredAt = text(snapshot.approved_at || snapshot.ordered_at);
+      if (
+        new Date(occurredAt).getTime() <
+          new Date(`${start}T00:00:00-03:00`).getTime() ||
+        new Date(occurredAt).getTime() >=
+          new Date(`${end}T00:00:00-03:00`).getTime()
+      )
+        continue;
+      sale = saleFromRecord({
+        ...snapshot,
+        external_transaction_id: snapshot.transaction_id,
+        event_at: occurredAt,
+        created_at: snapshot.observed_at,
+        event_type: "PURCHASE_APPROVED",
+        integration_connections: { provider: "hotmart" },
+      });
+      saleRows.push(sale);
+    }
+    sale.status =
+      snapshot.purchase_status === "PARTIALLY_REFUNDED"
+        ? "partial_refund"
+        : "reversed";
+  }
   return {
-    sales: sales.map(saleFromRecord),
+    sales: saleRows,
     recovery: recovery.map(recoveryFromRecord),
     contacts: contacts.map((row) => ({
       id: text(row.id),

@@ -1,4 +1,5 @@
 "use client";
+import { HotmartHistoryPanel } from "@/components/hotmart-history-panel";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Download, LoaderCircle, RefreshCw, Search } from "lucide-react";
@@ -26,6 +27,8 @@ const labels = {
 const statusLabels: Record<string, string> = {
   paid: "Paga",
   refunded: "Reembolso",
+  reversed: "Estornada — histórico Hotmart",
+  partial_refund: "Reembolso parcial — valor pendente",
   pending: "Pagamento pendente",
   abandoned: "Abandono",
   failed: "Falha no pagamento",
@@ -431,6 +434,8 @@ export function ProjectOperationsPanel({
   }
   return (
     <section className="panel space-y-6 rounded-[24px] p-5 sm:p-7">
+      {view === "sales" && !demoMode && <HotmartHistoryPanel projectId={projectId} />}
+      {data?.sales.some(sale=>["reversed","partial_refund"].includes(sale.status)) && <p className="rounded-xl bg-amber-50 p-3 text-sm">A Hotmart informou estornos no histórico. Essas compras estão separadas das receitas aprovadas. A data do estorno e o valor de reembolsos parciais dependem dos eventos da plataforma; totais líquidos com reembolso parcial ficam como não informados.</p>}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="eyebrow">Operação do projeto</p>

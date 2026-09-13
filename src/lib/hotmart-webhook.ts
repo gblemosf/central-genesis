@@ -161,8 +161,10 @@ export function normalizeHotmartWebhookEvent(
     0,
   );
   const grossAmount = purchase.price.value;
-  const netAfterFee = purchase.hotmart_fee
-    ? Math.max(grossAmount - purchase.hotmart_fee.total, 0)
+  const feeCurrency = text(purchase.hotmart_fee?.currency_code || purchase.hotmart_fee?.currency_value || currency).toUpperCase();
+  const matchingFee = feeCurrency === currency ? purchase.hotmart_fee : undefined;
+  const netAfterFee = matchingFee
+    ? Math.max(grossAmount - matchingFee.total, 0)
     : null;
   const netAmount = hasProducerCommission
     ? producerNet
@@ -188,7 +190,7 @@ export function normalizeHotmartWebhookEvent(
   if (contact.name || contact.email || contact.phone) payload.contact = contact;
   const platformCommissions = matchingCommissions.filter(commission =>
     ["MARKETPLACE", "HOTMART"].includes(commission.source?.toUpperCase() ?? "") && commission.value !== undefined);
-  const fee = purchase.hotmart_fee?.total ?? (platformCommissions.length
+  const fee = matchingFee?.total ?? (platformCommissions.length
     ? platformCommissions.reduce((sum, item) => sum + (item.value ?? 0), 0) : null);
   payload.financial = {
     gross: grossAmount, platform_fee: fee,

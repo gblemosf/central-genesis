@@ -660,7 +660,7 @@ export async function getProjectAnalytics(
     for (let page = 0; page < 100; page += 1) {
       const from = page * pageSize;
       const response = await supabase
-        .from("sales_events")
+        .from("recognized_sales_events")
         .select(
           "id,event_type,event_at,sales_event_items(id,product_id,funnel_stage_id,product_name_snapshot,stage_type_snapshot,quantity,net_amount)",
         )
