@@ -32,6 +32,8 @@ Identificação pública do aplicativo: `/about`; política de privacidade: `/pr
 
 A conta Google conectada pode receber formulários compartilhados como Editor e a planilha vinculada como Leitor. A conta que administra o cliente OAuth não precisa ser a proprietária original dos formulários. As permissões do formulário e da planilha devem ser conferidas separadamente.
 
+A identificação pública `google-site-verification` nos metadados do layout comprova a propriedade do endereço `https://central-gestao-genesis.vercel.app/` para a conta `automacoes.lc@gmail.com` no Search Console. Ela não é uma credencial de acesso e deve permanecer publicada para conservar a verificação. O login continua obrigatório para os dados dos projetos.
+
 Uma planilha de consolidação que não esteja vinculada ao formulário não é importada por essa opção. Dados de vendas são recebidos diretamente das plataformas; a leitura da planilha não cria vendas, contatos ou alterações financeiras automaticamente.
 
 ## Valores financeiros e atribuição

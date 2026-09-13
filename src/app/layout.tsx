@@ -21,6 +21,9 @@ export const metadata: Metadata = {
   description:
     "Operacao de projetos, integracoes, funis e performance da Genesis.",
   icons: { icon: genesisLogoUrl, apple: genesisLogoUrl },
+  verification: {
+    google: "ZGTMz3Z5CjQnUkCjtVcWXevDBA-fWLiSTyESbG2rGb8",
+  },
   openGraph: {
     title: "Central de Gestao Genesis",
     description:
