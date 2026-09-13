@@ -45,6 +45,15 @@ export async function hotmartHistoryPage(
     );
   }
   if (!response.ok) {
+    const errorBody = await response.text().catch(() => "");
+    let providerCode: unknown;
+    try {
+      providerCode = record(JSON.parse(errorBody)).error;
+    } catch {
+      // Some gateways return HTML instead of the documented JSON error.
+    }
+    const errorCode = typeof providerCode === "string" &&
+      /^[a-z_]{1,60}$/.test(providerCode) ? providerCode : "unknown";
     // Keep failures diagnosable without logging tokens, transaction IDs or buyers.
     console.warn("Hotmart history request failed", {
       endpoint,
@@ -54,6 +63,9 @@ export async function hotmartHistoryPage(
       purchaseStatus: query.get("transaction_status"),
       hasTransaction: query.has("transaction"),
       hasPageToken: query.has("page_token"),
+      contentType: response.headers.get("content-type"),
+      errorCode,
+      errorFields: ["product_id", "start_date", "end_date", "transaction_status", "page_token", "max_results", "Authorization", "header", "too large"].filter((field) => errorBody.includes(field)),
     });
     if ([401, 403].includes(response.status))
       throw new ApiError(
