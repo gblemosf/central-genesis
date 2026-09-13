@@ -6,6 +6,7 @@ import { ApiError } from "@/lib/api-auth";
 export const GOOGLE_FORMS_SCOPES = [
   "https://www.googleapis.com/auth/forms.body.readonly",
   "https://www.googleapis.com/auth/forms.responses.readonly",
+  "https://www.googleapis.com/auth/spreadsheets.readonly",
 ] as const;
 
 export interface GoogleOAuthTokens {
@@ -36,8 +37,9 @@ function googleClientSecret() {
 
 export function isGoogleOAuthConfigured() {
   return Boolean(
-    googleClientId() &&
+    /^[a-zA-Z0-9_-]+\.apps\.googleusercontent\.com$/.test(googleClientId()) &&
       googleClientSecret() &&
+      !/^(your[-_]|seu[-_]|placeholder|example)/i.test(googleClientSecret()) &&
       process.env.GOOGLE_REDIRECT_URI?.trim(),
   );
 }
@@ -45,7 +47,8 @@ export function isGoogleOAuthConfigured() {
 export function getGoogleRedirectUri(requestUrl?: string) {
   const configured = process.env.GOOGLE_REDIRECT_URI?.trim();
   if (configured) return configured;
-  if (!requestUrl) throw new ApiError("GOOGLE_REDIRECT_URI nao configurado.", 503);
+  if (!requestUrl)
+    throw new ApiError("GOOGLE_REDIRECT_URI nao configurado.", 503);
 
   const url = new URL(requestUrl);
   return `${url.origin}/api/connections/google/callback`;
@@ -55,7 +58,7 @@ export function assertGoogleOAuthConfigured(requestUrl?: string) {
   const clientId = googleClientId();
   const clientSecret = googleClientSecret();
   const redirectUri = getGoogleRedirectUri(requestUrl);
-  if (!clientId || !clientSecret || !redirectUri) {
+  if (!isGoogleOAuthConfigured() || !redirectUri) {
     throw new ApiError("Credenciais OAuth do Google nao configuradas.", 503);
   }
   return { clientId, clientSecret, redirectUri };
@@ -137,7 +140,8 @@ export async function exchangeGoogleAuthorizationCode(
   requestUrl: string,
   code: string,
 ) {
-  const { clientId, clientSecret, redirectUri } = assertGoogleOAuthConfigured(requestUrl);
+  const { clientId, clientSecret, redirectUri } =
+    assertGoogleOAuthConfigured(requestUrl);
   return tokenRequest(
     new URLSearchParams({
       code,
@@ -200,7 +204,11 @@ export function serializeGoogleCredential(
 export function decodeGoogleCredential(raw: string): GoogleCredentialBundle {
   try {
     const parsed = JSON.parse(raw) as Partial<GoogleCredentialBundle>;
-    if (parsed.version === 1 && parsed.provider === "google_forms" && parsed.refreshToken) {
+    if (
+      parsed.version === 1 &&
+      parsed.provider === "google_forms" &&
+      parsed.refreshToken
+    ) {
       return parsed as GoogleCredentialBundle;
     }
   } catch {

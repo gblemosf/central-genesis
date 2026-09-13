@@ -22,7 +22,14 @@ interface GoogleFormQuestionItem {
       timeQuestion?: Record<string, unknown>;
       fileUploadQuestion?: Record<string, unknown>;
       rowQuestion?: Record<string, unknown>;
+      ratingQuestion?: Record<string, unknown>;
     };
+  };
+  questionGroupItem?: {
+    questions?: NonNullable<
+      GoogleFormQuestionItem["questionItem"]
+    >["question"][];
+    grid?: Record<string, unknown>;
   };
 }
 
@@ -34,6 +41,7 @@ interface GoogleForm {
   };
   responderUri?: string;
   revisionId?: string;
+  linkedSheetId?: string;
   items?: GoogleFormQuestionItem[];
 }
 
@@ -116,23 +124,40 @@ function questionType(question: GoogleFormQuestionItem["questionItem"]) {
   return "unknown";
 }
 
-function normalizeQuestions(form: GoogleForm): NormalizedGoogleQuestion[] {
-  return (form.items ?? [])
-    .map((item, position) => {
-      const question = item.questionItem?.question;
-      const questionId = question?.questionId;
-      if (!questionId) return null;
-      return {
-        questionId,
+export function normalizeQuestions(
+  form: GoogleForm,
+): NormalizedGoogleQuestion[] {
+  const result: NormalizedGoogleQuestion[] = [];
+  for (const item of form.items ?? []) {
+    const questions = item.questionGroupItem?.questions ?? [
+      item.questionItem?.question,
+    ];
+    for (const question of questions) {
+      if (!question?.questionId) continue;
+      const rowTitle =
+        typeof question.rowQuestion?.title === "string"
+          ? question.rowQuestion.title
+          : "";
+      result.push({
+        questionId: question.questionId,
         itemId: item.itemId ?? null,
-        title: item.title?.trim() || "Pergunta sem titulo",
-        type: questionType(item.questionItem),
-        position,
-        required: Boolean(question?.required),
-        configuration: question as Record<string, unknown>,
-      } satisfies NormalizedGoogleQuestion;
-    })
-    .filter((item): item is NormalizedGoogleQuestion => Boolean(item));
+        title:
+          rowTitle && item.title?.trim()
+            ? `${item.title.trim()} [${rowTitle}]`
+            : rowTitle || item.title?.trim() || "Pergunta sem título",
+        type: question.ratingQuestion ? "rating" : questionType({ question }),
+        position: result.length,
+        required: Boolean(question.required),
+        configuration: {
+          ...question,
+          ...(item.questionGroupItem?.grid
+            ? { grid: item.questionGroupItem.grid }
+            : {}),
+        },
+      });
+    }
+  }
+  return result;
 }
 
 function schemaHash(questions: NormalizedGoogleQuestion[]) {
@@ -165,7 +190,9 @@ function inferIdentityAndUtm(
   response: GoogleFormResponse,
   questions: NormalizedGoogleQuestion[],
 ) {
-  const byQuestion = new Map(questions.map((question) => [question.questionId, question]));
+  const byQuestion = new Map(
+    questions.map((question) => [question.questionId, question]),
+  );
   const identity: Record<string, string> = {};
   const utm: Record<string, string> = {};
 
@@ -176,23 +203,37 @@ function inferIdentityAndUtm(
     if (!value) continue;
 
     if (valueMatches(question.title, ["nome", "name"])) identity.name ??= value;
-    if (valueMatches(question.title, ["email", "e-mail"])) identity.email ??= value;
-    if (valueMatches(question.title, ["telefone", "celular", "whatsapp", "phone"])) {
+    if (valueMatches(question.title, ["email", "e-mail"]))
+      identity.email ??= value;
+    if (
+      valueMatches(question.title, ["telefone", "celular", "whatsapp", "phone"])
+    ) {
       identity.phone ??= value;
     }
     if (valueMatches(question.title, ["utm source", "utm_source", "origem"])) {
       utm.source ??= value;
     }
-    if (valueMatches(question.title, ["utm medium", "utm_medium", "midia", "meio"])) {
+    if (
+      valueMatches(question.title, [
+        "utm medium",
+        "utm_medium",
+        "midia",
+        "meio",
+      ])
+    ) {
       utm.medium ??= value;
     }
-    if (valueMatches(question.title, ["utm campaign", "utm_campaign", "campanha"])) {
+    if (
+      valueMatches(question.title, ["utm campaign", "utm_campaign", "campanha"])
+    ) {
       utm.campaign ??= value;
     }
     if (valueMatches(question.title, ["utm term", "utm_term", "termo"])) {
       utm.term ??= value;
     }
-    if (valueMatches(question.title, ["utm content", "utm_content", "conteudo"])) {
+    if (
+      valueMatches(question.title, ["utm content", "utm_content", "conteudo"])
+    ) {
       utm.content ??= value;
     }
   }
@@ -200,7 +241,7 @@ function inferIdentityAndUtm(
   return { identity, utm };
 }
 
-function normalizeResponses(
+export function normalizeResponses(
   responses: GoogleFormResponse[],
   questions: NormalizedGoogleQuestion[],
 ): NormalizedGoogleResponse[] {
@@ -216,24 +257,29 @@ function normalizeResponses(
         createdAt,
         submittedAt,
         respondentEmail: response.respondentEmail ?? null,
-        totalScore: typeof response.totalScore === "number" ? response.totalScore : null,
+        totalScore:
+          typeof response.totalScore === "number" ? response.totalScore : null,
         identity,
         utm,
-        answers: Object.entries(response.answers ?? {}).map(([questionId, answer]) => {
-          const values: unknown[] =
-            answer.textAnswers?.answers?.map((item) => item.value ?? "") ??
-            answer.fileUploadAnswers?.answers ??
-            [];
-          const grade = objectValue(answer.grade);
-          return {
-            questionId,
-            values,
-            grade: Object.keys(grade).length ? grade : null,
-          };
-        }),
+        answers: Object.entries(response.answers ?? {}).map(
+          ([questionId, answer]) => {
+            const values: unknown[] =
+              answer.textAnswers?.answers?.map((item) => item.value ?? "") ??
+              answer.fileUploadAnswers?.answers ??
+              [];
+            const grade = objectValue(answer.grade);
+            return {
+              questionId,
+              values,
+              grade: Object.keys(grade).length ? grade : null,
+            };
+          },
+        ),
       } satisfies NormalizedGoogleResponse;
     })
-    .filter((response): response is NormalizedGoogleResponse => Boolean(response));
+    .filter((response): response is NormalizedGoogleResponse =>
+      Boolean(response),
+    );
 }
 
 async function googleFetch<T>(url: URL, accessToken: string) {
@@ -246,7 +292,10 @@ async function googleFetch<T>(url: URL, accessToken: string) {
     error?: { message?: string };
   };
   if (!response.ok) {
-    throw new ApiError(data?.error?.message ?? "Google Forms recusou a requisicao.", 422);
+    throw new ApiError(
+      data?.error?.message ?? "Google Forms recusou a requisicao.",
+      422,
+    );
   }
   return data;
 }
@@ -262,21 +311,27 @@ export async function withGoogleAccessToken<T>(
   if (!accessToken || expiresAt < Date.now() + 60_000) {
     const refreshed = await refreshGoogleAccessToken(credential.refreshToken);
     accessToken = refreshed.access_token;
-    await store.save(serializeGoogleCredential(refreshed, credential.refreshToken));
+    await store.save(
+      serializeGoogleCredential(refreshed, credential.refreshToken),
+    );
   }
 
   return callback(accessToken);
 }
 
 export async function fetchGoogleForm(formId: string, accessToken: string) {
-  const url = new URL(`https://forms.googleapis.com/v1/forms/${encodeURIComponent(formId)}`);
+  const url = new URL(
+    `https://forms.googleapis.com/v1/forms/${encodeURIComponent(formId)}`,
+  );
   const form = await googleFetch<GoogleForm>(url, accessToken);
   const questions = normalizeQuestions(form);
   return {
     formId: form.formId || formId,
-    title: form.info?.title || form.info?.documentTitle || "Formulario sem titulo",
+    title:
+      form.info?.title || form.info?.documentTitle || "Formulario sem titulo",
     responderUri: form.responderUri ?? null,
     revisionId: form.revisionId ?? null,
+    linkedSheetId: form.linkedSheetId ?? null,
     questions,
     schemaHash: schemaHash(questions),
   };
@@ -297,7 +352,8 @@ export async function fetchGoogleFormResponses(
       `https://forms.googleapis.com/v1/forms/${encodeURIComponent(formId)}/responses`,
     );
     url.searchParams.set("pageSize", "5000");
-    if (sinceFilter) url.searchParams.set("filter", `timestamp > ${sinceFilter}`);
+    if (sinceFilter)
+      url.searchParams.set("filter", `timestamp > ${sinceFilter}`);
     if (pageToken) url.searchParams.set("pageToken", pageToken);
 
     const data = await googleFetch<{
@@ -309,5 +365,38 @@ export async function fetchGoogleFormResponses(
     if (!pageToken) break;
   }
 
+  if (pageToken)
+    throw new ApiError(
+      "A importação excedeu o limite de páginas. O cursor foi preservado para evitar perda de respostas.",
+      422,
+    );
+
   return normalizeResponses(responses, questions);
+}
+
+export async function fetchGoogleFormResponsePage(
+  formId: string,
+  accessToken: string,
+  questions: NormalizedGoogleQuestion[],
+  since?: string | null,
+  pageToken?: string | null,
+) {
+  const url = new URL(
+    `https://forms.googleapis.com/v1/forms/${encodeURIComponent(formId)}/responses`,
+  );
+  url.searchParams.set("pageSize", "200");
+  if (since)
+    url.searchParams.set(
+      "filter",
+      `timestamp > ${new Date(since).toISOString()}`,
+    );
+  if (pageToken) url.searchParams.set("pageToken", pageToken);
+  const data = await googleFetch<{
+    responses?: GoogleFormResponse[];
+    nextPageToken?: string;
+  }>(url, accessToken);
+  return {
+    responses: normalizeResponses(data.responses ?? [], questions),
+    nextPageToken: data.nextPageToken ?? null,
+  };
 }

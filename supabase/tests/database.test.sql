@@ -716,10 +716,10 @@ select is(
   'Hubla abandoned checkout creates normalized UTM dimensions'
 );
 select ok(
-  not (select payload ? 'contact'
+  (select payload ? 'contact'
        from public.hubla_webhook_events
        where idempotency_key = 'hubla-abandoned-1'),
-  'Hubla raw event audit does not duplicate recovery contact PII'
+  'Hubla event retains minimal contact data for unmapped recovery replay'
 );
 select ok(
   (select mapped from public.ingest_hubla_webhook(

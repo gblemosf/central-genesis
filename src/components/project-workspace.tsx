@@ -17,6 +17,8 @@ import {
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { ProjectMetricsPanel } from "@/components/project-metrics-panel";
+import { ProjectOperationsPanel, type OperationView } from "@/components/project-operations-panel";
+import { ProjectFormResponses } from "@/components/project-form-responses";
 import type {
   FunnelStageType,
   ProjectAnalytics,
@@ -63,13 +65,6 @@ const projectStatusLabels: Record<ProjectSummary["status"], string> = {
   archived: "Projeto arquivado",
 };
 
-const recoveryStatusLabels = {
-  abandoned: "Abandonado",
-  pending: "Pendente",
-  failed: "Falhou",
-  expired: "Expirado",
-  recovered: "Recuperado",
-} as const;
 
 function formatDateTime(value: string | null) {
   if (!value) return "Pendente";
@@ -99,7 +94,7 @@ export function ProjectWorkspace({
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [tab, setTab] = useState<
-    "overview" | "metrics" | "forms" | "leads" | "utms" | "products" | "settings"
+    "overview" | "metrics" | "forms" | "products" | "settings" | OperationView
   >("overview");
   const demoProducts = productSets[project.id] ?? [
     { name: "Produto principal", stage: "Core", price: 0 },
@@ -731,7 +726,7 @@ export function ProjectWorkspace({
         body: JSON.stringify(payload),
       });
       const body = (await response.json().catch(() => null)) as
-        | { data?: { title?: string; processed?: number }; error?: string }
+        | { data?: { title?: string; processed?: number; hasMore?: boolean }; error?: string }
         | null;
       if (!response.ok) {
         setFormsMessage(body?.error ?? "Nao foi possivel sincronizar o formulario.");
@@ -741,7 +736,7 @@ export function ProjectWorkspace({
 
       setGoogleFormUrl("");
       setFormsMessage(
-        `${body?.data?.title ?? "Formulario"}: ${body?.data?.processed ?? 0} resposta(s) processada(s).`,
+        `${body?.data?.title ?? "Formulario"}: ${body?.data?.processed ?? 0} resposta(s) processada(s).${body?.data?.hasMore ? " Há mais respostas; a importação continuará nos próximos lotes." : ""}`,
       );
       setFormsOperation("idle");
       startTransition(() => router.refresh());
@@ -772,10 +767,13 @@ export function ProjectWorkspace({
         <div className="flex max-w-full gap-1 overflow-x-auto rounded-xl border border-[var(--line)] bg-white/45 p-1">
           {[
             ["overview", "Resumo"],
-            ["metrics", "Metricas"],
-            ["forms", "Formularios"],
-            ["leads", "Leads"],
-            ["utms", "UTMs"],
+            ["sales", "Vendas"],
+            ["origins", "Origens"],
+            ["recovery", "Recuperação"],
+            ["contacts", "Contatos"],
+            ["forms", "Formulários"],
+            ["results", "Resultados"],
+            ["metrics", "Métricas e custos"],
             ["products", "Produtos"],
             ["settings", "Configuracoes"],
           ].map(([key, label]) => (
@@ -792,6 +790,9 @@ export function ProjectWorkspace({
           ))}
         </div>
       </header>
+      {["sales", "origins", "contacts", "recovery", "results"].includes(tab) && (
+        <ProjectOperationsPanel key={tab} projectId={project.id} view={tab as OperationView} demoMode={demoMode || project.legacy} />
+      )}
       {initialCatalog.warning && (
         <p className="rounded-xl bg-amber-50 px-4 py-3 text-xs font-medium text-amber-950">
           {initialCatalog.warning}
@@ -1073,6 +1074,7 @@ export function ProjectWorkspace({
             </div>
           </section>
 
+          <ProjectFormResponses projectId={project.id} forms={initialForms.forms} />
           <section className="grid gap-4 xl:grid-cols-2">
             {initialForms.forms.map((form) => (
               <article key={form.id} className="panel rounded-[24px] p-6">
@@ -1142,206 +1144,6 @@ export function ProjectWorkspace({
             )}
           </section>
         </div>
-      )}
-
-      {tab === "leads" && (
-        <div className="space-y-6">
-          <section className="panel rounded-[24px] p-6">
-            <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <p className="eyebrow">Hubla</p>
-                <h2 className="mt-2 text-2xl font-black tracking-[-0.04em]">
-                  Recuperacao de checkout
-                </h2>
-                <p className="mt-2 text-xs text-[var(--muted)]">
-                  Abandonos e pagamentos pendentes identificados pelo webhook.
-                </p>
-              </div>
-              <div className="grid grid-cols-2 gap-2 text-center text-xs">
-                <div className="rounded-xl bg-amber-50 px-4 py-3 text-amber-900">
-                  <strong className="block text-xl">
-                    {formatNumber(initialForms.recoveryAttempts.filter((attempt) =>
-                      attempt.status !== "recovered" && attempt.status !== "expired"
-                    ).length)}
-                  </strong>
-                  Em aberto
-                </div>
-                <div className="rounded-xl bg-emerald-50 px-4 py-3 text-emerald-900">
-                  <strong className="block text-xl">
-                    {formatNumber(initialForms.recoveryAttempts.filter((attempt) =>
-                      attempt.status === "recovered"
-                    ).length)}
-                  </strong>
-                  Recuperados
-                </div>
-              </div>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[900px] text-left text-xs">
-                <thead className="text-[10px] uppercase tracking-wider text-[var(--muted)]">
-                  <tr>
-                    <th className="border-b border-[var(--line)] px-3 py-3">Status</th>
-                    <th className="border-b border-[var(--line)] px-3 py-3">Contato</th>
-                    <th className="border-b border-[var(--line)] px-3 py-3">Telefone</th>
-                    <th className="border-b border-[var(--line)] px-3 py-3">Valor</th>
-                    <th className="border-b border-[var(--line)] px-3 py-3">Origem</th>
-                    <th className="border-b border-[var(--line)] px-3 py-3">Ultimo evento</th>
-                    <th className="border-b border-[var(--line)] px-3 py-3">Checkout</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {initialForms.recoveryAttempts.map((attempt) => (
-                    <tr key={attempt.id}>
-                      <td className="border-b border-[var(--line)] px-3 py-3">
-                        <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${
-                          attempt.status === "recovered"
-                            ? "bg-emerald-100 text-emerald-800"
-                            : attempt.status === "expired"
-                              ? "bg-slate-100 text-slate-700"
-                              : "bg-amber-100 text-amber-900"
-                        }`}>
-                          {recoveryStatusLabels[attempt.status]}
-                        </span>
-                      </td>
-                      <td className="border-b border-[var(--line)] px-3 py-3">
-                        <strong className="block">{attempt.contactName ?? "Sem nome"}</strong>
-                        <span className="mt-1 block text-[10px] text-[var(--muted)]">
-                          {attempt.contactEmail ?? "Sem e-mail"}
-                        </span>
-                      </td>
-                      <td className="border-b border-[var(--line)] px-3 py-3">
-                        {attempt.contactPhone ?? "-"}
-                      </td>
-                      <td className="border-b border-[var(--line)] px-3 py-3 font-bold">
-                        {formatCurrency(attempt.amount)}
-                      </td>
-                      <td className="max-w-[240px] border-b border-[var(--line)] px-3 py-3">
-                        <span className="block truncate">
-                          {attempt.utmSource ?? "sem origem"} / {attempt.utmMedium ?? "sem meio"}
-                        </span>
-                        <span className="mt-1 block truncate text-[10px] text-[var(--muted)]">
-                          {attempt.utmCampaign ?? "Sem campanha"}
-                        </span>
-                      </td>
-                      <td className="border-b border-[var(--line)] px-3 py-3">
-                        {formatDateTime(attempt.lastSeenAt)}
-                      </td>
-                      <td className="border-b border-[var(--line)] px-3 py-3">
-                        {attempt.checkoutUrl ? (
-                          <a
-                            href={attempt.checkoutUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="font-bold text-violet-700 hover:underline"
-                          >
-                            Abrir
-                          </a>
-                        ) : "-"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {!initialForms.recoveryAttempts.length && (
-              <p className="mt-4 rounded-2xl border border-dashed border-[var(--line)] p-6 text-sm text-[var(--muted)]">
-                Os abandonos aparecem aqui depois do primeiro evento real da Hubla.
-              </p>
-            )}
-          </section>
-
-          <section className="panel rounded-[24px] p-6">
-            <div className="mb-6">
-              <p className="eyebrow">Contatos</p>
-              <h2 className="mt-2 text-2xl font-black tracking-[-0.04em]">
-                Leads identificados
-              </h2>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[720px] text-left text-xs">
-                <thead className="text-[10px] uppercase tracking-wider text-[var(--muted)]">
-                  <tr>
-                    <th className="border-b border-[var(--line)] px-3 py-3">Nome</th>
-                    <th className="border-b border-[var(--line)] px-3 py-3">E-mail</th>
-                    <th className="border-b border-[var(--line)] px-3 py-3">Telefone</th>
-                    <th className="border-b border-[var(--line)] px-3 py-3">Fonte</th>
-                    <th className="border-b border-[var(--line)] px-3 py-3">Ultimo contato</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {initialForms.contacts.map((contact) => (
-                    <tr key={contact.id}>
-                      <td className="border-b border-[var(--line)] px-3 py-3 font-bold">
-                        {contact.name ?? "Sem nome"}
-                      </td>
-                      <td className="border-b border-[var(--line)] px-3 py-3">
-                        {contact.email ?? "-"}
-                      </td>
-                      <td className="border-b border-[var(--line)] px-3 py-3">
-                        {contact.phone ?? "-"}
-                      </td>
-                      <td className="border-b border-[var(--line)] px-3 py-3">
-                        {contact.source ?? "-"}
-                      </td>
-                      <td className="border-b border-[var(--line)] px-3 py-3">
-                        {formatDateTime(contact.lastSeenAt)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {!initialForms.contacts.length && (
-              <p className="mt-4 rounded-2xl border border-dashed border-[var(--line)] p-6 text-sm text-[var(--muted)]">
-                Os leads aparecem aqui depois da primeira resposta ou evento da Hubla.
-              </p>
-            )}
-          </section>
-        </div>
-      )}
-
-      {tab === "utms" && (
-        <section className="panel rounded-[24px] p-6">
-          <div className="mb-6">
-            <p className="eyebrow">Origem de leads</p>
-            <h2 className="mt-2 text-2xl font-black tracking-[-0.04em]">
-              Campanhas UTM
-            </h2>
-          </div>
-          <div className="grid gap-3 xl:grid-cols-2">
-            {initialForms.utms.map((utm) => (
-              <article key={utm.id} className="rounded-2xl border border-[var(--line)] bg-white/45 p-5">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted)]">
-                  {utm.source ?? "sem source"} / {utm.medium ?? "sem medium"}
-                </p>
-                <h3 className="mt-2 text-lg font-black tracking-[-0.03em]">
-                  {utm.campaign ?? "Campanha sem nome"}
-                </h3>
-                <div className="mt-5 grid grid-cols-3 gap-3 text-xs">
-                  <div>
-                    <span className="block text-[var(--muted)]">Leads</span>
-                    <strong className="mt-1 block text-lg">{formatNumber(utm.contacts)}</strong>
-                  </div>
-                  <div>
-                    <span className="block text-[var(--muted)]">Respostas</span>
-                    <strong className="mt-1 block text-lg">{formatNumber(utm.responses)}</strong>
-                  </div>
-                  <div>
-                    <span className="block text-[var(--muted)]">Ultimo toque</span>
-                    <strong className="mt-1 block text-[11px]">
-                      {formatDateTime(utm.latestTouchAt)}
-                    </strong>
-                  </div>
-                </div>
-              </article>
-            ))}
-          </div>
-          {!initialForms.utms.length && (
-            <p className="rounded-2xl border border-dashed border-[var(--line)] p-6 text-sm text-[var(--muted)]">
-              UTMs aparecem quando as respostas trouxerem campos de origem/campanha.
-            </p>
-          )}
-        </section>
       )}
 
       {tab === "products" && (

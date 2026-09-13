@@ -65,7 +65,7 @@ describe("Hotmart webhook normalization", () => {
     });
   });
 
-  it("preserva sck e xcod sem persistir dados pessoais do comprador", () => {
+  it("preserva atribuição e contato, sem CPF ou endereço", () => {
     const [envelope] = parseHotmartWebhookPayload(
       realShapeFixture("PURCHASE_APPROVED", true),
     );
@@ -78,7 +78,7 @@ describe("Hotmart webhook normalization", () => {
       },
       is_order_bump: true,
     });
-    expect(JSON.stringify(event?.payload)).not.toContain("pessoa@example.invalid");
+    expect(event?.payload.contact).toMatchObject({ email: "pessoa@example.invalid" });
     expect(JSON.stringify(event?.payload)).not.toContain("documento-pessoal-teste");
   });
 

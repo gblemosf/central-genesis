@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { record, text, saleAttribution } from "@/lib/sales-attribution";
 
 const stringOrNumber = z.union([z.string(), z.number()]);
 const currencyCode = z.string().trim().length(3).optional();
@@ -146,7 +147,10 @@ export function normalizeHotmartWebhookEvent(
       : purchase.approved_date ?? purchase.order_date ?? event.creation_date,
   );
 
-  const producerCommissions = (event.data.commissions ?? []).filter(
+  const currency = (purchase.price.currency_code ?? purchase.price.currency_value ?? "BRL").toUpperCase();
+  const matchingCommissions = (event.data.commissions ?? []).filter(commission =>
+    (commission.currency_code ?? commission.currency_value ?? currency).toUpperCase() === currency);
+  const producerCommissions = matchingCommissions.filter(
     (commission) => commission.source?.toUpperCase() === "PRODUCER",
   );
   const hasProducerCommission = producerCommissions.some(
@@ -168,22 +172,35 @@ export function normalizeHotmartWebhookEvent(
     : netAfterFee !== null
       ? "gross_minus_hotmart_fee"
       : "gross_fallback";
-  const producerCurrency = producerCommissions.find(
-    (commission) => commission.currency_code || commission.currency_value,
-  );
-  const currency = (
-    producerCurrency?.currency_code ??
-    producerCurrency?.currency_value ??
-    purchase.price.currency_code ??
-    purchase.price.currency_value ??
-    "BRL"
-  ).toUpperCase();
 
   const payload: Record<string, unknown> = {
     product_external_id: String(event.data.product.id),
     source_event_type: event.event,
     net_amount_source: netAmountSource,
+    product_name: event.data.product.name ?? String(event.data.product.id),
   };
+  const buyer = record(event.data.buyer);
+  const contact = {
+    name: text(buyer.name || [buyer.first_name, buyer.last_name].filter(Boolean).join(" ")).slice(0, 300),
+    email: text(buyer.email).toLowerCase().slice(0, 254),
+    phone: text(buyer.checkout_phone || buyer.phone).replace(/[^\d+]/g, "").slice(0, 40),
+  };
+  if (contact.name || contact.email || contact.phone) payload.contact = contact;
+  const platformCommissions = matchingCommissions.filter(commission =>
+    ["MARKETPLACE", "HOTMART"].includes(commission.source?.toUpperCase() ?? "") && commission.value !== undefined);
+  const fee = purchase.hotmart_fee?.total ?? (platformCommissions.length
+    ? platformCommissions.reduce((sum, item) => sum + (item.value ?? 0), 0) : null);
+  payload.financial = {
+    gross: grossAmount, platform_fee: fee,
+    net_after_fees: fee === null ? null : Math.round((grossAmount - fee) * 100) / 100,
+    payout: hasProducerCommission ? netAmount : null,
+    payout_source: netAmountSource,
+    commissions: (event.data.commissions ?? []).map(item => ({
+      source: item.source, value: item.value, currency: item.currency_code ?? item.currency_value ?? currency,
+    })),
+  };
+  const payment = record(purchase.payment);
+  payload.payment = { type: text(payment.type), installments: payment.installments_number ?? null };
   if (event.data.product.ucode) {
     payload.product_ucode = event.data.product.ucode;
   }
@@ -197,10 +214,14 @@ export function normalizeHotmartWebhookEvent(
   if (purchase.order_bump?.is_order_bump !== undefined) {
     payload.is_order_bump = purchase.order_bump.is_order_bump;
   }
-  if (purchase.origin?.sck || purchase.origin?.xcod) {
+  if (purchase.origin) {
+    const attribution = saleAttribution(purchase.origin, String(event.data.product.id));
     payload.attribution = {
       ...(purchase.origin.sck ? { sck: purchase.origin.sck } : {}),
       ...(purchase.origin.xcod ? { xcod: purchase.origin.xcod } : {}),
+      utm: { source: attribution.source, medium: attribution.medium, campaign: attribution.campaign,
+        content: attribution.content, term: attribution.term, id: attribution.id },
+      ...(attribution.page ? { landing_url: attribution.page } : {}),
     };
   }
 

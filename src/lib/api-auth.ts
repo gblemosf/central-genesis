@@ -49,7 +49,7 @@ export async function requireAdmin(): Promise<AdminContext> {
 }
 
 export async function requireActiveProject(
-  context: AdminContext,
+  context: Pick<AdminContext, "supabase" | "organizationId">,
   projectId: string,
 ) {
   const { data, error } = await context.supabase

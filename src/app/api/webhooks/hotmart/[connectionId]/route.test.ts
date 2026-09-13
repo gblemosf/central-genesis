@@ -97,16 +97,14 @@ describe("Hotmart webhook route", () => {
         p_net_amount: 70,
         p_currency: "BRL",
         p_payload: expect.objectContaining({
-          attribution: {
+          attribution: expect.objectContaining({
             sck: "meta-ads|campanha",
             xcod: "pagina-teste",
-          },
+          }),
         }),
       }),
     );
-    expect(JSON.stringify(mocks.rpc.mock.calls)).not.toContain(
-      "pessoa@example.invalid",
-    );
+    expect(JSON.stringify(mocks.rpc.mock.calls)).toContain("pessoa@example.invalid");
   });
 
   it("recusa uma assinatura HOTTOK incorreta antes de gravar", async () => {

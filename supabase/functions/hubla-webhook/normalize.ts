@@ -215,9 +215,13 @@ export function normalizeHublaWebhookPayload(payload: JsonObject) {
         : lead.amount,
   );
   const grossAmount = numberValue(amount.totalCents) / 100;
-  const seller = arrayValue(invoice.receivers)
-    .map(objectValue)
-    .find((receiver) => stringValue(receiver.role, 100).toLowerCase() === "seller");
+  const invoiceCurrency = stringValue(invoice.currency, 3).toUpperCase() || "BRL";
+  const receivers = arrayValue(invoice.receivers).map(objectValue).filter(receiver =>
+    (stringValue(receiver.currency, 3).toUpperCase() || invoiceCurrency) === invoiceCurrency &&
+    typeof receiver.totalCents === "number" && Number.isFinite(receiver.totalCents));
+  const seller = receivers.find(receiver => stringValue(receiver.role, 100).toLowerCase() === "seller");
+  const platform = receivers.filter(receiver => stringValue(receiver.role, 100).toLowerCase() === "platform");
+  const platformFee = platform.length ? platform.reduce((sum, receiver) => sum + numberValue(receiver.totalCents), 0) / 100 : null;
   const netAmount = seller ? numberValue(seller.totalCents) / 100 : grossAmount;
   const entity = Object.keys(invoice).length > 0
     ? invoice
@@ -267,6 +271,14 @@ export function normalizeHublaWebhookPayload(payload: JsonObject) {
         type,
         known_event: knownEvent,
         event_time_inferred: !parsedEventAt,
+        financial: {
+          gross: grossAmount,
+          platform_fee: platformFee,
+          net_after_fees: platformFee === null ? null : Math.round((grossAmount - platformFee) * 100) / 100,
+          payout: seller ? netAmount : null,
+          payout_source: seller ? "seller_receiver" : "gross_fallback",
+        },
+        payment: { type: stringValue(invoice.paymentMethod, 100), installments: invoice.installments ?? null },
         ...(status ? { status } : {}),
         entity: {
           id: entityId || null,

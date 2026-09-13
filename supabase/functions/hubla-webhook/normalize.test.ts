@@ -2,6 +2,18 @@ import { describe, expect, it } from "vitest";
 import { normalizeHublaWebhookPayload } from "./normalize";
 
 describe("Hubla webhook normalization", () => {
+  it("separa a taxa da plataforma de parceiros e do vendedor na mesma moeda", () => {
+    const result = normalizeHublaWebhookPayload({ type: "invoice.payment_succeeded", event: {
+      product: { id: "example" }, invoice: { id: "invoice", currency: "BRL", amount: { totalCents: 29700 },
+        receivers: [{ role: "platform", totalCents: 2028, currency: "BRL" }, { role: "partner", totalCents: 13836, currency: "BRL" }, { role: "seller", totalCents: 13836, currency: "BRL" }, { role: "platform", totalCents: 100, currency: "USD" }],
+        paymentMethod: "pix", installments: 1,
+      },
+    } });
+    expect(result).toMatchObject({ value: { payload: {
+      financial: { gross: 297, platform_fee: 20.28, net_after_fees: 276.72, payout: 138.36 },
+      payment: { type: "pix", installments: 1 },
+    } } });
+  });
   it("preserva recuperacao e atribuicao do checkout abandonado", () => {
     const result = normalizeHublaWebhookPayload({
       type: "lead.abandoned_checkout",

@@ -20,8 +20,8 @@ jobs:
       - run: npm test
       - uses: supabase/setup-cli@v1
         with:
-          version: 2.104.0
+          version: 2.117.0
       - run: supabase start
       - run: supabase db lint --local --level warning
-      - run: supabase test db supabase/tests/database.test.sql
+      - run: supabase test db
       - run: npm run build
