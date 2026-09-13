@@ -49,7 +49,7 @@ describe("session proxy", () => {
     expect(response.headers.get("location")).toBe("http://localhost/login");
   });
 
-  it.each(["/login", "/about", "/privacy", "/terms", "/data-deletion", "/api/webhooks/hotmart/test", "/api/jobs/google-forms"])(
+  it.each(["/login", "/about", "/privacy", "/terms", "/data-deletion", "/api/webhooks/hotmart/test", "/api/jobs/google-forms", "/api/jobs/hotmart-history", "/api/jobs/meta"])(
     "mantem %s independente da disponibilidade do login", async (path) => {
       getClaims.mockRejectedValue(new Error("Auth unavailable"));
       const response = await updateSession(new NextRequest(`http://localhost${path}`));
