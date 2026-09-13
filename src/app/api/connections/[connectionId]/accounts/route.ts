@@ -30,16 +30,24 @@ export async function POST(
     }
     if (!connection) throw new ApiError("Conexao nao encontrada.", 404);
     if (connection.provider !== "meta") {
-      throw new ApiError("Descoberta automatica disponivel apenas para Meta.", 422);
+      throw new ApiError(
+        "Descoberta automatica disponivel apenas para Meta.",
+        422,
+      );
     }
 
     const storedCredential = await readConnectionSecret(connectionId);
-    const credential = decodeProviderCredentials("meta", storedCredential).accessToken;
-    if (!credential) throw new ApiError("Token de acesso Meta nao encontrado.", 422);
+    const credential = decodeProviderCredentials(
+      "meta",
+      storedCredential,
+    ).accessToken;
+    if (!credential)
+      throw new ApiError("Token de acesso Meta nao encontrado.", 422);
     const version = process.env.META_GRAPH_API_VERSION ?? "v25.0";
-    const owner = connection.system_user_id || "me";
-    const edge = connection.system_user_id ? "assigned_ad_accounts" : "adaccounts";
-    const url = new URL(`https://graph.facebook.com/${version}/${owner}/${edge}`);
+    // Resolve accounts through the token's own identity. A configured business
+    // system-user ID may differ from the app-scoped ID accepted by Graph.
+    // This includes both owned and partner accounts the token can access.
+    const url = new URL(`https://graph.facebook.com/${version}/me/adaccounts`);
     url.searchParams.set(
       "fields",
       "id,name,account_status,currency,timezone_name",
@@ -54,21 +62,24 @@ export async function POST(
     let unassignedAccounts = 0;
 
     if (connection.business_id && connection.system_user_id) {
-      const businessAccountRequests = ["owned_ad_accounts", "client_ad_accounts"].map(
-        (businessEdge) => {
-          const businessUrl = new URL(
-            `https://graph.facebook.com/${version}/${connection.business_id}/${businessEdge}`,
-          );
-          businessUrl.searchParams.set("fields", "id,name");
-          businessUrl.searchParams.set("limit", "200");
-          return fetchMetaCollection<MetaAccount>(
-            businessUrl,
-            credential,
-            "A Meta recusou o diagnostico das contas do BM.",
-          );
-        },
+      const businessAccountRequests = [
+        "owned_ad_accounts",
+        "client_ad_accounts",
+      ].map((businessEdge) => {
+        const businessUrl = new URL(
+          `https://graph.facebook.com/${version}/${connection.business_id}/${businessEdge}`,
+        );
+        businessUrl.searchParams.set("fields", "id,name");
+        businessUrl.searchParams.set("limit", "200");
+        return fetchMetaCollection<MetaAccount>(
+          businessUrl,
+          credential,
+          "A Meta recusou o diagnostico das contas do BM.",
+        );
+      });
+      const businessAccountResults = await Promise.allSettled(
+        businessAccountRequests,
       );
-      const businessAccountResults = await Promise.allSettled(businessAccountRequests);
       const assignedIds = new Set(accounts.map((account) => account.id));
       const unassignedIds = new Set(
         businessAccountResults
@@ -80,10 +91,11 @@ export async function POST(
       unassignedAccounts = unassignedIds.size;
     }
 
-    const { data: currentAccounts, error: currentAccountsError } = await context.supabase
-      .from("provider_accounts")
-      .select("id,external_id")
-      .eq("connection_id", connectionId);
+    const { data: currentAccounts, error: currentAccountsError } =
+      await context.supabase
+        .from("provider_accounts")
+        .select("id,external_id")
+        .eq("connection_id", connectionId);
     if (currentAccountsError) throw currentAccountsError;
 
     if (accounts.length) {
