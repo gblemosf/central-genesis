@@ -56,11 +56,11 @@ export function getProjectReadiness(
     },
     {
       key: "metrics",
-      label: "Parametros confirmados",
-      description: analytics.configSaved
-        ? "Periodo, precos e custos foram confirmados."
-        : "Revise o periodo, os precos liquidos e os custos.",
-      ready: analytics.configSaved,
+      label: "Dados para análise",
+      description: hasSales || hasTraffic
+        ? "Selecione período e produtos para consultar os resultados. Custos externos são opcionais."
+        : "Conecte as fontes para preencher os painéis automaticamente.",
+      ready: hasSales || hasTraffic,
       target: "metrics",
     },
     {

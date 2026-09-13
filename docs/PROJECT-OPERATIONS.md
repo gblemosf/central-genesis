@@ -74,3 +74,20 @@ Publicação: aplicar `20260913112444_hotmart_history_imports.sql`, publicar o a
 Contratos consultados: [histórico](https://developers.hotmart.com/docs/en/v1/sales/sales-history/), [comissões](https://developers.hotmart.com/docs/en/v1/sales/sales-commissions/). A resposta real das comissões usa `commission.currency_code`; o normalizador também aceita `currency_value` da documentação e dos webhooks.
 
 As consultas de vendas usam `node:https`, com limite de 15 segundos e de 4 MiB por resposta. A validação em produção identificou HTTP 400 no transporte `fetch` da Vercel para consultas que funcionavam localmente; o transporte nativo foi validado na própria Vercel com as mesmas credenciais e filtros. Não segue redirecionamentos e não registra tokens, compradores ou o corpo da resposta de erro. Os logs conservam o endpoint, HTTP e código de erro para diagnóstico.
+# Análises por período e produto — setembro de 2026
+
+Vendas, Origens, Contatos, Recuperação, Resultados e Métricas compartilham a seleção de período e produtos ao trocar de aba. Atalhos inclusivos: 7, 15, 30, 60 dias, 3 e 6 meses de calendário. O período personalizado aceita até 366 dias por consulta. Selecionar um período consulta os dados já recebidos; a importação histórica da Hotmart continua disponível na aba Vendas para preencher intervalos anteriores.
+
+A seleção múltipla usa IDs estáveis do catálogo, com distinção entre todos e nenhum. Vendas sem ID interno podem ser identificadas pelo par conexão/ID externo. Recuperações sem vínculo de produto ficam fora de uma seleção específica. Contatos filtrados por produto se limitam aos contatos vinculados às vendas ou tentativas no período; essa base não representa todos os visitantes do produto. Exportações acompanham os filtros.
+
+Preços de referência usam a média ponderada por unidade das vendas aprovadas: repasse ao produtor quando disponível; caso contrário, valor após taxas. As duas bases não são misturadas. Valores desconhecidos permanecem indisponíveis, sem substituir pelo preço bruto do catálogo. Reembolsos não entram na média dos pagamentos; as quantidades de referência descontam os estornos registrados no período. Quantidades de produtos diferentes não comprovam conversão entre os mesmos compradores.
+
+O CPA base automático só é calculado quando o projeto tem um único produto de entrada, vendas e investimento registrado. É um CPA combinado, incluindo vendas orgânicas. Ao filtrar produtos, os dados de tráfego continuam sendo os da conta; CPA, ROAS e resultado por produto ficam indisponíveis até haver divisão confiável dos gastos. Metas, verba futura, taxas contratuais, divisão do lucro, presença e despesas externas permanecem decisões da operação. Novos projetos não recebem percentuais e metas arbitrários. Valores personalizados existentes são preservados, com a opção de voltar a Automático.
+
+O Financeiro permite consultar os dados recebidos sem confirmar premissas. O resultado considera apenas os custos registrados; não equivale a uma auditoria de todas as despesas.
+
+## Atualização da Meta
+
+A migration `20260913133708_meta_automatic_sync.sql` cria funções restritas ao servidor, seleção de projeto e trava de execução. Depois do deploy, `scripts/activate-meta-sync.sql` configura um token próprio no Vault e uma chamada a cada cinco minutos. Cada chamada processa um projeto ativo com conta Meta válida, no máximo uma vez por hora por projeto, sem depender de navegador aberto. Primeira execução: últimos seis meses; seguintes: últimos dez dias para incorporar ajustes recentes. A fila distribui a atualização pelos projetos. Falhas ficam em `sync_runs` com `job_type=meta_auto`; execuções interrompidas expiram em dez minutos e podem ser retomadas na próxima janela horária.
+
+Nenhum vínculo de conta, credencial existente ou permissão de fornecedor é alterado. Projetos sem a conta correta ficam pendentes. A gravação do tráfego e a conclusão do trabalho ocorrem na mesma transação e só aceitam uma execução válida.

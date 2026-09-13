@@ -15,6 +15,7 @@ import type {
 import { salesProviders } from "@/lib/domain";
 import { demoConnections, demoProjects } from "@/lib/demo-data";
 import { dateInTimezone } from "@/lib/dates";
+import { observedSaleFromEvent } from "@/lib/metric-references";
 import {
   defaultProjectMetricConfig,
   normalizeProjectMetricConfig,
@@ -84,6 +85,9 @@ interface SaleEventItemRow {
 }
 
 interface SaleEventRow {
+  payload?: unknown;
+  currency?: string;
+  net_amount?: number | string | null;
   id: string;
   event_type: string;
   event_at: string;
@@ -580,6 +584,7 @@ export async function getProjectCatalog(projectId: string): Promise<ProjectCatal
 export async function getProjectAnalytics(
   projectId: string,
   catalog: ProjectCatalog,
+  period?: { periodStart: string; periodEnd: string },
 ): Promise<ProjectAnalytics> {
   const supabase = await createSupabaseServerClient();
   const today = dateInTimezone(new Date());
@@ -643,7 +648,7 @@ export async function getProjectAnalytics(
     typeof savedMetricSettings.companySharePercent === "number" &&
     typeof savedMetricSettings.baseCpa === "number" &&
     typeof savedMetricSettings.idealCpa === "number";
-  const config = normalizeProjectMetricConfig(settings.metrics, projectToday);
+  const config = normalizeProjectMetricConfig({ ...savedMetricSettings, ...period }, projectToday);
   const salesConnectionId =
     typeof settings.sales_connection_id === "string" && settings.sales_connection_id
       ? settings.sales_connection_id
@@ -662,7 +667,7 @@ export async function getProjectAnalytics(
       const response = await supabase
         .from("recognized_sales_events")
         .select(
-          "id,event_type,event_at,sales_event_items(id,product_id,funnel_stage_id,product_name_snapshot,stage_type_snapshot,quantity,net_amount)",
+          "id,event_type,event_at,currency,net_amount,payload,sales_event_items(id,product_id,funnel_stage_id,product_name_snapshot,stage_type_snapshot,quantity,net_amount)",
         )
         .eq("project_id", projectId)
         .in("event_type", [
@@ -1108,6 +1113,9 @@ export async function getProjectAnalytics(
   return {
     config,
     configSaved,
+    observedSales: sales.error ? [] : sales.data.flatMap((event) => observedSaleFromEvent(
+      event, dateInTimezone(new Date(event.event_at), project.reporting_timezone),
+    )),
     dataSources: {
       csvDailyRows:
         normalizedCsvDateSet.size + legacyCsvDateSet.size,

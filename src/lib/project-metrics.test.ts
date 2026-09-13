@@ -62,6 +62,7 @@ describe("project metrics", () => {
   it("desconta taxa de trafego e todos os custos do lucro", () => {
     const config = {
       ...defaultProjectMetricConfig("2026-07-31"),
+      trafficFeePercent: 13.85,
       manychatCost: 1000,
       companyCosts: 7200,
       otherCosts: 800,
@@ -75,6 +76,7 @@ describe("project metrics", () => {
   it("calcula os cenarios de CPA com as taxas historicas", () => {
     const config = {
       ...defaultProjectMetricConfig("2026-07-31"),
+      trafficFeePercent: 13.85,
       ticketBudget: 7000,
       historicalAttendance: 40,
       historicalTicketSales: 62,

@@ -9,7 +9,9 @@ import {
   type ProjectOperations,
   type SaleRow,
 } from "@/lib/project-operations";
-import { dateInTimezone, subtractCalendarDays } from "@/lib/dates";
+import { dateInTimezone } from "@/lib/dates";
+import type { AnalysisFilter } from "@/lib/analysis-filters";
+import type { ProjectProduct } from "@/lib/domain";
 
 export type OperationView =
   | "sales"
@@ -182,20 +184,22 @@ export function ProjectOperationsPanel({
   projectId,
   view,
   demoMode = false,
+  filter,
+  products,
 }: {
   projectId: string;
   view: OperationView;
   demoMode?: boolean;
+  filter: AnalysisFilter;
+  products: ProjectProduct[];
 }) {
-  const today = dateInTimezone(new Date());
-  const [period, setPeriod] = useState({
-    start: subtractCalendarDays(today, 30),
-    end: today,
-  });
+  const period = useMemo(() => ({ start: filter.start, end: filter.end }), [filter.start, filter.end]);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
   const [currency, setCurrency] = useState("");
-  const [data, setData] = useState<ProjectOperations | null>(null);
+  const [loadedData, setData] = useState<ProjectOperations | null>(null);
+  const [loadedPeriod, setLoadedPeriod] = useState("");
+  const data = loadedPeriod === `${period.start}:${period.end}` ? loadedData : null;
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [revision, setRevision] = useState(0);
@@ -218,13 +222,16 @@ export function ProjectOperationsPanel({
           throw new Error(body.error ?? "Falha ao carregar os registros.");
         if (!controller.signal.aborted) {
           setData(body.data);
+          setLoadedPeriod(`${period.start}:${period.end}`);
           setError("");
         }
       } catch (cause) {
-        if (!controller.signal.aborted)
+        if (!controller.signal.aborted) {
+          setData(null);
           setError(
             cause instanceof Error ? cause.message : "Falha de conexão.",
           );
+        }
       } finally {
         pending = false;
         if (!controller.signal.aborted) setLoading(false);
@@ -242,6 +249,15 @@ export function ProjectOperationsPanel({
 
   const selectedCurrency = currency || data?.currency || "BRL";
   const filtered = useMemo(() => {
+    const selectedIds = filter.productIds;
+    const matchesProduct = (sale: SaleRow) => selectedIds === null ||
+      (sale.catalogProductId ? selectedIds.includes(sale.catalogProductId) : products.some((product) =>
+        selectedIds.includes(product.id) && product.externalId === sale.productId && product.connectionId === sale.connectionId));
+    const matchedContacts = new Set([
+      ...(data?.sales ?? []).filter(matchesProduct).map((sale) => sale.contactId),
+      ...(data?.recovery ?? []).filter((attempt) => selectedIds === null ||
+        selectedIds.includes(attempt.catalogProductId ?? "")).map((attempt) => attempt.contactId),
+    ]);
     const needle = query.trim().toLocaleLowerCase("pt-BR");
     const matches = (values: unknown[]) =>
       !needle ||
@@ -254,6 +270,7 @@ export function ProjectOperationsPanel({
       sales: (data?.sales ?? []).filter(
         (sale) =>
           sale.currency === selectedCurrency &&
+          matchesProduct(sale) &&
           (!status || sale.status === status) &&
           matches([
             sale.transaction,
@@ -264,12 +281,19 @@ export function ProjectOperationsPanel({
             ...Object.values(sale.attribution),
           ]),
       ),
-      contacts: (data?.contacts ?? []).filter((contact) =>
-        matches([contact.name, contact.email, contact.phone, contact.source]),
-      ),
+      contacts: (data?.contacts ?? []).filter((contact) => {
+        const hasActivity = [contact.createdAt, contact.lastSeenAt].some((value) => {
+          if (!value || Number.isNaN(Date.parse(value))) return false;
+          const date = dateInTimezone(new Date(value));
+          return date >= period.start && date <= period.end;
+        }) || matchedContacts.has(contact.id);
+        return hasActivity && (selectedIds === null || matchedContacts.has(contact.id)) &&
+          matches([contact.name, contact.email, contact.phone, contact.source]);
+      }),
       recovery: (data?.recovery ?? []).filter(
         (attempt) =>
           attempt.currency === selectedCurrency &&
+          (selectedIds === null || selectedIds.includes(attempt.catalogProductId ?? "")) &&
           (!status || attempt.status === status) &&
           matches([
             attempt.name,
@@ -281,7 +305,7 @@ export function ProjectOperationsPanel({
           ]),
       ),
     };
-  }, [data, query, status, selectedCurrency]);
+  }, [data, query, status, selectedCurrency, filter.productIds, products, period]);
   const summary = summarizeSales(filtered.sales, selectedCurrency);
   const currencies = Array.from(
     new Set([
@@ -466,7 +490,8 @@ export function ProjectOperationsPanel({
           </button>
         </div>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_150px_150px_130px_180px]">
+      {filter.productIds !== null && <p className="text-xs text-[var(--muted)]">Contatos limitados às compras e tentativas vinculadas aos produtos selecionados no período. Registros sem produto identificado ficam fora desta seleção.</p>}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_130px_180px]">
         <label className="relative self-end">
           <Search
             size={15}
@@ -480,34 +505,6 @@ export function ProjectOperationsPanel({
             value={query}
             onChange={(event) => {
               setQuery(event.target.value);
-              setPage(1);
-            }}
-          />
-        </label>
-        <label className="text-xs">
-          De
-          <input
-            type="date"
-            className="field mt-1"
-            aria-label="Data inicial"
-            value={period.start}
-            onChange={(event) => {
-              setData(null);
-              setPeriod({ ...period, start: event.target.value });
-              setPage(1);
-            }}
-          />
-        </label>
-        <label className="text-xs">
-          Até
-          <input
-            type="date"
-            className="field mt-1"
-            aria-label="Data final"
-            value={period.end}
-            onChange={(event) => {
-              setData(null);
-              setPeriod({ ...period, end: event.target.value });
               setPage(1);
             }}
           />

@@ -48,7 +48,7 @@ export async function loadProjectOperations(
     readAllRows((from, to) =>
       scoped(
         "sales_events",
-        "id,connection_id,external_event_id,external_transaction_id,event_type,event_at,created_at,gross_amount,net_amount,currency,payload,contact_id,contacts(name,email,phone),integration_connections(provider),sales_event_items(product_name_snapshot,stage_type_snapshot)",
+        "id,connection_id,external_event_id,external_transaction_id,event_type,event_at,created_at,gross_amount,net_amount,currency,payload,contact_id,contacts(name,email,phone),integration_connections(provider),sales_event_items(product_id,product_name_snapshot,stage_type_snapshot)",
       )
         .gte("event_at", `${start}T00:00:00-03:00`)
         .lt("event_at", `${end}T00:00:00-03:00`)
@@ -74,7 +74,7 @@ export async function loadProjectOperations(
     readAllRows((from, to) =>
       scoped(
         "checkout_recovery_attempts",
-        "id,contact_id,status,amount,currency,checkout_url,last_seen_at,metadata,contacts(name,email,phone),utm_campaigns(utm_source,utm_campaign),products(name),integration_connections(provider)",
+        "id,product_id,contact_id,status,amount,currency,checkout_url,last_seen_at,metadata,contacts(name,email,phone),utm_campaigns(utm_source,utm_campaign),products(name),integration_connections(provider)",
       )
         .gte("last_seen_at", `${start}T00:00:00-03:00`)
         .lt("last_seen_at", `${end}T00:00:00-03:00`)

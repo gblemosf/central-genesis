@@ -7,6 +7,7 @@ import {
 } from "@/lib/sales-attribution";
 
 export interface SaleRow {
+  catalogProductId?: string;
   id: string;
   transaction: string;
   connectionId: string;
@@ -43,6 +44,7 @@ export interface OperationContact {
   lastSeenAt: string;
 }
 export interface RecoveryRow {
+  catalogProductId?: string;
   id: string;
   contactId: string | null;
   name: string;
@@ -99,6 +101,7 @@ export function saleFromRecord(row: Record<string, unknown>): SaleRow {
       : null);
   return {
     id: text(row.id),
+    catalogProductId: text(item.product_id || row.product_id),
     transaction: text(row.external_transaction_id || row.external_event_id),
     connectionId: text(row.connection_id),
     provider: text(connection.provider),
@@ -143,6 +146,7 @@ export function recoveryFromRecord(row: Record<string, unknown>): RecoveryRow {
     campaign = relation(row.utm_campaigns);
   return {
     id: text(row.id),
+    catalogProductId: text(row.product_id),
     contactId: text(row.contact_id) || null,
     name: text(contact.name),
     email: text(contact.email),

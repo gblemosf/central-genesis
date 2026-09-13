@@ -203,6 +203,10 @@ const projectMetricCount = z.number().nonnegative().max(100_000_000);
 
 export const projectMetricConfigInputSchema = z
   .object({
+    automaticMetrics: z.partialRecord(z.enum([
+      "baseCpa", "ticketNetPrice", "formationNetPrice", "orderBump1NetPrice",
+      "orderBump2NetPrice", "orderBump3NetPrice", "historicalTicketSales", "historicalFormationSales",
+    ]), z.boolean()).optional(),
     periodStart: z.iso.date(),
     periodEnd: z.iso.date(),
     trafficFeePercent: z.number().min(0).max(100),

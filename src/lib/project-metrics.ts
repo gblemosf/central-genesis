@@ -30,17 +30,17 @@ export function defaultProjectMetricConfig(today: string): ProjectMetricConfig {
   return {
     periodStart: `${today.slice(0, 7)}-01`,
     periodEnd: today,
-    trafficFeePercent: 13.85,
+    trafficFeePercent: 0,
     manychatCost: 0,
     companyCosts: 0,
     otherCosts: 0,
-    companySharePercent: 50,
+    companySharePercent: 0,
     ticketBudget: 0,
     apiBudget: 0,
     remarketingBudget: 0,
     distributionBudget: 0,
-    baseCpa: 50,
-    idealCpa: 30,
+    baseCpa: 0,
+    idealCpa: 0,
     historicalAttendance: 0,
     historicalTicketSales: 0,
     historicalFormationSales: 0,
@@ -83,6 +83,13 @@ export function normalizeProjectMetricConfig(
   const validPeriod = periodDays >= 0 && periodDays <= 365;
 
   return {
+    automaticMetrics: Object.fromEntries(
+      Object.entries(recordValue(input.automaticMetrics)).filter(
+        ([key, mode]) => ["baseCpa", "ticketNetPrice", "formationNetPrice",
+          "orderBump1NetPrice", "orderBump2NetPrice", "orderBump3NetPrice",
+          "historicalTicketSales", "historicalFormationSales"].includes(key) && typeof mode === "boolean",
+      ),
+    ),
     periodStart: validPeriod ? periodStart : defaults.periodStart,
     periodEnd: validPeriod ? periodEnd : defaults.periodEnd,
     trafficFeePercent: finiteNumber(input.trafficFeePercent, defaults.trafficFeePercent),
@@ -124,7 +131,7 @@ export function calculateDailyPerformance(
   trafficFeePercent: number,
 ) {
   const coreProducts = metric.productMetrics.filter(
-    (product) => product.stageType === "core",
+    (product) => ["core", "front_end", "low_ticket"].includes(product.stageType),
   );
   const orderBumps = metric.productMetrics.filter(
     (product) => product.stageType === "order_bump",
@@ -153,7 +160,7 @@ export function calculateDailyPerformance(
     connectRate: ratioPercentage(metric.pageViews, metric.clicks),
     landingPageConversion: ratioPercentage(metric.checkouts, metric.pageViews),
     checkoutConversion: ratioPercentage(coreSales, metric.checkouts),
-    cpa: coreSales > 0 ? finalInvestment / coreSales : null,
+    cpa: coreSales > 0 && finalInvestment > 0 ? finalInvestment / coreSales : null,
     arpu: coreSales > 0 && trackedRevenueAvailable ? trackedRevenue / coreSales : null,
     coreRoas: finalInvestment > 0 && coreRevenueAvailable
       ? coreRevenue / finalInvestment

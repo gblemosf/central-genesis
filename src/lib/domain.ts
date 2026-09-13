@@ -70,6 +70,7 @@ export interface ProjectDailyMetric extends DailyMetric {
 }
 
 export interface ProjectMetricConfig {
+  automaticMetrics?: Partial<Record<AutomaticMetricField, boolean>>;
   periodStart: string;
   periodEnd: string;
   trafficFeePercent: number;
@@ -102,7 +103,22 @@ export interface ProjectMetricConfig {
   downsellProductId: string | null;
 }
 
+export type AutomaticMetricField = "baseCpa" | "ticketNetPrice" | "formationNetPrice" |
+  "orderBump1NetPrice" | "orderBump2NetPrice" | "orderBump3NetPrice" |
+  "historicalTicketSales" | "historicalFormationSales";
+
+// Only aggregateable financial facts cross the server/client boundary here.
+export interface ObservedProductSale {
+  date: string;
+  productId: string;
+  quantity: number;
+  refunded: boolean;
+  payout: number | null;
+  afterFees: number | null;
+}
+
 export interface ProjectAnalytics {
+  observedSales?: ObservedProductSale[];
   config: ProjectMetricConfig;
   configSaved: boolean;
   dataSources: {

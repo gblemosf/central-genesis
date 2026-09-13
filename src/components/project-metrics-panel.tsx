@@ -13,8 +13,9 @@ import {
   Upload,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import type {
+  AutomaticMetricField,
   ProjectAnalytics,
   ProjectFunnelStage,
   ProjectMetricConfig,
@@ -31,6 +32,8 @@ import {
   calculateProjectionScenario,
   percentage,
 } from "@/lib/project-metrics";
+import { automaticMetricFields, resolveMetricReferences, usesAutomaticMetric, type MetricReference } from "@/lib/metric-references";
+import { filterProductMetrics, type AnalysisFilter } from "@/lib/analysis-filters";
 import { formatCurrency, formatNumber, formatPercent } from "@/lib/utils";
 
 const decimalFormatter = new Intl.NumberFormat("pt-BR", {
@@ -138,13 +141,35 @@ function CsvPreview({ preview }: { preview: MetricsCsvInspection | null }) {
   );
 }
 
+function ReferenceField({ label, field, config, reference, onMode, onChange }: {
+  label: string; field: AutomaticMetricField; config: ProjectMetricConfig; reference: MetricReference;
+  onMode: (automatic: boolean) => void; onChange: (value: number) => void;
+}) {
+  const automatic = usesAutomaticMetric(config, field);
+  return <div className="space-y-2 text-xs">
+    <div className="flex items-center justify-between gap-2">
+      <label className="font-bold" htmlFor={`metric-${field}`}>{label}</label>
+      <select aria-label={`Fonte de ${label}`} className="rounded-lg border border-[var(--line)] bg-white p-1 text-[10px]"
+        value={automatic ? "auto" : "manual"} onChange={(event) => onMode(event.target.value === "auto")}>
+        <option value="auto">Automático</option><option value="manual">Personalizar</option>
+      </select>
+    </div>
+    {automatic ? <output id={`metric-${field}`} className="field block bg-emerald-50 font-bold">
+      {reference.value === null ? "Aguardando dados" : decimalFormatter.format(reference.value)}
+    </output> : <input id={`metric-${field}`} className="field" type="number" min="0" step="0.01"
+      value={config[field]} onChange={(event) => onChange(Number(event.target.value) || 0)} />}
+    <p className="text-[10px] leading-4 text-[var(--muted)]">{automatic ? reference.detail : "Valor personalizado preservado. Selecione Automático para acompanhar as integrações."}</p>
+  </div>;
+}
+
 export function ProjectMetricsPanel({
   projectId,
-  analytics,
+  analytics: initialAnalytics,
   products,
   stages,
   demoMode,
   readOnly = false,
+  filter,
 }: {
   projectId: string;
   analytics: ProjectAnalytics;
@@ -152,8 +177,16 @@ export function ProjectMetricsPanel({
   stages: ProjectFunnelStage[];
   demoMode: boolean;
   readOnly?: boolean;
+  filter: AnalysisFilter;
 }) {
   const router = useRouter();
+  const [loadedAnalytics, setLoadedAnalytics] = useState<ProjectAnalytics | null>(null);
+  const sourceAnalytics = loadedAnalytics ?? initialAnalytics;
+  const productSubset = filter.productIds !== null;
+  const analytics = { ...sourceAnalytics, dailyMetrics: filterProductMetrics(sourceAnalytics.dailyMetrics.filter(
+    (row) => row.date >= filter.start && row.date <= filter.end,
+  ), filter.productIds) };
+  const [loadingPeriod, setLoadingPeriod] = useState(false);
   const hasObservedData = analytics.dailyMetrics.some(hasMetricData);
   const hasAnySourceRows =
     analytics.dataSources.csvDailyRows > 0 ||
@@ -182,6 +215,28 @@ export function ProjectMetricsPanel({
   const [dailyStart, setDailyStart] = useState(analytics.config.periodStart);
   const [dailyEnd, setDailyEnd] = useState(analytics.config.periodEnd);
   const [dailyAscending, setDailyAscending] = useState(true);
+  useEffect(() => {
+    if (demoMode || readOnly) return;
+    const controller = new AbortController();
+    async function loadPeriod() {
+      setLoadingPeriod(true);
+      try {
+        const response = await fetch(`/api/projects/${projectId}/analytics?${new URLSearchParams({ periodStart: filter.start, periodEnd: filter.end })}`, { signal: controller.signal });
+        const body = await response.json();
+        if (!response.ok || body.data?.warning) throw new Error(body.error ?? body.data?.warning ?? "Não foi possível carregar o período.");
+        if (!controller.signal.aborted) {
+          setLoadedAnalytics(body.data);
+          setConfig((current) => ({ ...current, periodStart: filter.start, periodEnd: filter.end }));
+          setDailyStart(filter.start); setDailyEnd(filter.end);
+          setMessage("");
+        }
+      } catch (cause) {
+        if (!controller.signal.aborted) setMessage(cause instanceof Error ? cause.message : "Falha ao carregar o período.");
+      } finally { if (!controller.signal.aborted) setLoadingPeriod(false); }
+    }
+    void loadPeriod();
+    return () => controller.abort();
+  }, [filter.start, filter.end, projectId, demoMode, readOnly]);
   const dailyRows = populatedRows
     .filter((metric) => metric.date >= dailyStart && metric.date <= dailyEnd)
     .sort((a, b) => dailyAscending
@@ -196,10 +251,17 @@ export function ProjectMetricsPanel({
       const positionB = stageById.get(b.stageId ?? "")?.position ?? 0;
       return positionA - positionB || a.name.localeCompare(b.name);
     });
-  const productById = new Map(mappedProducts.map((product) => [product.id, product]));
-  const calculatedRows = dailyRows.map((metric) =>
-    calculateDailyPerformance(metric, config.trafficFeePercent),
-  );
+  const selectedReference = filter.productIds?.length === 1 ? mappedProducts.find((product) =>
+    product.id === filter.productIds![0] && ["core", "front_end", "low_ticket"].includes(stageById.get(product.stageId ?? "")?.type ?? "")) : null;
+  const referenceConfig = !config.ticketProductId && selectedReference ? { ...config, ticketProductId: selectedReference.id } : config;
+  const resolved = resolveMetricReferences(referenceConfig, mappedProducts, stages, analytics.observedSales ?? [],
+    sourceAnalytics.dailyMetrics, analytics.dataSources.webhookSalesEvents > 0 && !analytics.warning);
+  const effective = resolved.effective;
+  const performance = (metric: ProjectAnalytics["dailyMetrics"][number]) => {
+    const value = calculateDailyPerformance(metric, config.trafficFeePercent);
+    return productSubset ? { ...value, cpa: null, checkoutConversion: null, coreRoas: null, generalRoas: null } : value;
+  };
+  const calculatedRows = dailyRows.map(performance);
   const aggregate = aggregateProjectDailyMetrics(populatedRows);
   const dailyAggregate = aggregateProjectDailyMetrics(dailyRows);
   const orderBumpProducts = aggregate.productMetrics
@@ -214,37 +276,13 @@ export function ProjectMetricsPanel({
     { length: 3 },
     (_, index) => orderBumpProducts[index] ?? null,
   );
-  const total = calculateDailyPerformance(dailyAggregate, config.trafficFeePercent);
+  const total = performance(dailyAggregate);
   const financial = calculateFinancialSummary(populatedRows, config);
   const productTotals = aggregate.productMetrics;
 
-  const assignedProductIds = new Set<string>();
-  const roleProductId = (
-    configuredId: string | null,
-    types: ProjectFunnelStage["type"][],
-  ) => {
-    const productId =
-      configuredId && productById.has(configuredId) && !assignedProductIds.has(configuredId)
-        ? configuredId
-        : mappedProducts.find(
-            (product) =>
-              !assignedProductIds.has(product.id) &&
-              types.includes(stageById.get(product.stageId ?? "")?.type ?? "core"),
-          )?.id ?? null;
-    if (productId) assignedProductIds.add(productId);
-    return productId;
-  };
-  const ticketProductId = roleProductId(config.ticketProductId, [
-    "front_end",
-    "low_ticket",
-    "core",
-  ]);
-  const formationProductId = roleProductId(config.formationProductId, [
-    "upsell",
-    "middle_end",
-    "back_end",
-  ]);
-  const downsellProductId = roleProductId(config.downsellProductId, ["downsell"]);
+  const ticketProductId = resolved.ticketId;
+  const formationProductId = resolved.formationId;
+  const downsellProductId = resolved.downsellId;
   const productTotal = (productId: string | null) => {
     const matches = productTotals.filter((product) => product.productId === productId);
     if (!matches.length) return null;
@@ -260,33 +298,31 @@ export function ProjectMetricsPanel({
   const ticketTotal = productTotal(ticketProductId);
   const formationTotal = productTotal(formationProductId);
   const downsellTotal = productTotal(downsellProductId);
-  const ticketPrice =
-    config.ticketNetPrice || productById.get(ticketProductId ?? "")?.price || 0;
-  const formationPrice =
-    config.formationNetPrice || productById.get(formationProductId ?? "")?.price || 0;
+  const ticketPrice = effective.ticketNetPrice;
+  const formationPrice = effective.formationNetPrice;
   const baseScenario = calculateProjectionScenario(
-    config.baseCpa,
-    config,
+    effective.baseCpa,
+    effective,
     ticketPrice,
     formationPrice,
   );
   const idealScenario = calculateProjectionScenario(
-    config.idealCpa,
-    config,
+    config.idealCpa || effective.baseCpa,
+    effective,
     ticketPrice,
     formationPrice,
   );
   const historicalAttendanceRate = percentage(
     config.historicalAttendance,
-    config.historicalTicketSales,
+    effective.historicalTicketSales,
   );
   const historicalFormationRate = percentage(
-    config.historicalFormationSales,
+    effective.historicalFormationSales,
     config.historicalAttendance,
   );
   const historicalTicketConversion = percentage(
-    config.historicalFormationSales,
-    config.historicalTicketSales,
+    effective.historicalFormationSales,
+    effective.historicalTicketSales,
   );
   const plannedBudget =
     config.ticketBudget +
@@ -296,11 +332,11 @@ export function ProjectMetricsPanel({
   const planningRequirements = [
     { ready: config.ticketBudget > 0, label: "Orcamento de ingresso" },
     { ready: ticketPrice > 0, label: "Produto ou ticket liquido de ingresso" },
-    { ready: config.baseCpa > 0 && config.idealCpa > 0, label: "CPA base e ideal" },
-    { ready: config.historicalTicketSales > 0, label: "Ingressos do historico" },
-    { ready: config.historicalAttendance > 0, label: "Comparecimento do historico" },
+    { ready: effective.baseCpa > 0, label: "CPA base observado ou personalizado" },
+    { ready: effective.historicalTicketSales > 0, label: "Vendas no período de referência" },
+    { ready: !formationProductId || config.historicalAttendance > 0, label: "Comparecimento (se houver formação)" },
     {
-      ready: config.historicalFormationSales <= 0 || formationPrice > 0,
+      ready: !formationProductId || (formationPrice > 0 && resolved.references.historicalFormationSales.value !== null),
       label: "Ticket liquido da formacao",
     },
   ];
@@ -321,7 +357,7 @@ export function ProjectMetricsPanel({
       ? `${analytics.dataSources.csvDailyRows} linha(s) CSV diario`
       : null,
     analytics.dataSources.webhookSalesEvents > 0
-      ? `${analytics.dataSources.webhookSalesEvents} evento(s) webhook`
+      ? `${analytics.dataSources.webhookSalesEvents} evento(s) de API / webhook`
       : null,
   ]
     .filter(Boolean)
@@ -336,6 +372,12 @@ export function ProjectMetricsPanel({
     if (key === "periodEnd" && typeof value === "string") setDailyEnd(value);
     setConfigConfirmed(false);
   };
+
+  function referenceField(field: AutomaticMetricField, label: string) {
+    return <ReferenceField key={field} label={label} field={field} config={config} reference={resolved.references[field]}
+      onMode={(automatic) => updateConfig("automaticMetrics", { ...config.automaticMetrics, [field]: automatic })}
+      onChange={(value) => updateConfig(field, value)} />;
+  }
 
   async function saveConfig() {
     if (readOnly) {
@@ -369,6 +411,10 @@ export function ProjectMetricsPanel({
       setSaveState("saved");
       setConfigConfirmed(true);
       setMessage("Parametros salvos. Os indicadores foram recalculados.");
+      const refreshed = await fetch(`/api/projects/${projectId}/analytics?${new URLSearchParams({ periodStart: config.periodStart, periodEnd: config.periodEnd })}`);
+      const refreshedBody = await refreshed.json();
+      if (refreshed.ok && refreshedBody.data && !refreshedBody.data.warning) setLoadedAnalytics(refreshedBody.data);
+      else setMessage("Escolhas salvas. Reabra Métricas para atualizar os resultados; a consulta não pôde ser concluída agora.");
       startTransition(() => router.refresh());
     } catch {
       setSaveState("error");
@@ -480,6 +526,11 @@ export function ProjectMetricsPanel({
 
   return (
     <div className="space-y-5">
+      {message && <p role="status" className="rounded-xl bg-blue-50 p-4 text-xs">{message}</p>}
+      {loadingPeriod && <p role="status" className="flex items-center gap-2 text-sm"><LoaderCircle className="animate-spin" size={16} /> Carregando o período selecionado…</p>}
+      {productSubset && <p className="rounded-xl bg-blue-50 p-4 text-xs leading-5">Receitas e vendas refletem os produtos selecionados. Tráfego e custos pertencem ao projeto inteiro; CPA, ROAS, margem e lucro por produto ficam indisponíveis sem divisão dos gastos por produto.</p>}
+      {!demoMode && !readOnly && (loadingPeriod || config.periodStart !== filter.start || config.periodEnd !== filter.end) ?
+        <p className="panel rounded-xl p-5 text-sm">{loadingPeriod ? "Aguarde para consultar os resultados atualizados." : "Não foi possível carregar a seleção. Os números do período anterior estão ocultos."}</p> : <>
       <div className="flex flex-wrap gap-1 rounded-xl border border-[var(--line)] bg-white/45 p-1">
         {[
           ["daily", "Metricas diarias"],
@@ -500,12 +551,6 @@ export function ProjectMetricsPanel({
           </button>
         ))}
       </div>
-
-      {message && (
-        <p className="rounded-xl bg-blue-50 px-4 py-3 text-xs font-medium text-blue-950">
-          {message}
-        </p>
-      )}
 
       {!hasAnySourceRows && (
         <section className="rounded-[24px] border border-amber-200 bg-amber-50 p-6 text-amber-950">
@@ -552,14 +597,6 @@ export function ProjectMetricsPanel({
               </h2>
             </div>
             <div className="flex flex-wrap items-end gap-2">
-              <label className="text-[9px] font-bold text-[var(--muted)]">
-                De
-                <input className="field mt-1 h-9 py-1 text-[10px]" type="date" value={dailyStart} min={config.periodStart} max={dailyEnd} onChange={(event) => setDailyStart(event.target.value)} />
-              </label>
-              <label className="text-[9px] font-bold text-[var(--muted)]">
-                Ate
-                <input className="field mt-1 h-9 py-1 text-[10px]" type="date" value={dailyEnd} min={dailyStart} max={config.periodEnd} onChange={(event) => setDailyEnd(event.target.value)} />
-              </label>
               <button type="button" onClick={() => setDailyAscending((current) => !current)} className="inline-flex h-9 items-center gap-1 rounded-lg border border-[var(--line)] px-3 text-[9px] font-bold">
                 <ArrowUpDown size={12} /> {dailyAscending ? "Mais antigas" : "Mais recentes"}
               </button>
@@ -685,16 +722,16 @@ export function ProjectMetricsPanel({
       )}
 
       {view === "financial" && (
-        hasRevenueMetrics && configConfirmed ? (
+        hasRevenueMetrics ? (
         <div className="space-y-4">
           <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
             {[
               ["Faturamento total", formatCurrency(financial.revenue)],
               ["Custo total", formatCurrency(financial.totalCost)],
-              ["Lucro real", formatCurrency(financial.profit)],
-              ["Margem", formatPercent(financial.margin)],
-              ["ROAS de midia", `${financial.roas.toFixed(2)}x`],
-              ["ROI operacional", `${financial.roi.toFixed(2)}x`],
+              ["Resultado com custos registrados", productSubset ? "N/D" : formatCurrency(financial.profit)],
+              ["Margem", productSubset ? "N/D" : formatPercent(financial.margin)],
+              ["ROAS de midia", productSubset || financial.finalTrafficInvestment === 0 ? "N/D" : `${financial.roas.toFixed(2)}x`],
+              ["ROI operacional", productSubset || financial.totalCost === 0 ? "N/D" : `${financial.roi.toFixed(2)}x`],
             ].map(([label, value]) => (
               <article key={label} className="panel rounded-[20px] p-5">
                 <p className="text-[9px] font-bold uppercase tracking-wider text-[var(--muted)]">
@@ -704,6 +741,8 @@ export function ProjectMetricsPanel({
               </article>
             ))}
           </section>
+
+          <p className="rounded-xl bg-blue-50 p-4 text-xs leading-5">O resultado considera somente receitas e custos registrados. Taxas contratuais, participação e despesas externas precisam ser informadas quando existirem. Consulte Vendas para conferir bruto, taxas e repasse ao produtor.</p>
 
           <section className="grid gap-4 xl:grid-cols-2">
             <article className="panel rounded-[24px] p-6">
@@ -761,7 +800,7 @@ export function ProjectMetricsPanel({
                   Resultado da empresa ({decimalFormatter.format(config.companySharePercent)}%)
                 </p>
                 <p className="mt-2 text-2xl font-black">
-                  {formatCurrency(financial.companyResult)}
+                  {productSubset || config.companySharePercent === 0 ? "Participação não calculada" : formatCurrency(financial.companyResult)}
                 </p>
               </div>
             </article>
@@ -791,9 +830,7 @@ export function ProjectMetricsPanel({
             <Info className="mx-auto text-[var(--muted)]" size={28} />
             <h2 className="mt-4 text-xl font-black">Financeiro ainda nao calculavel</h2>
             <p className="mx-auto mt-2 max-w-lg text-xs leading-5 text-[var(--muted)]">
-              {!configConfirmed
-                ? "Revise e salve as premissas manuais antes de calcular custos, margem e lucro."
-                : "Sem faturamento observado, custos isolados nao formam um resultado real. Abasteca as vendas antes de analisar lucro, margem ou ROAS."}
+              Sem receita no período e nos produtos selecionados. Selecione outro período ou confira a integração de vendas.
             </p>
           </section>
         )
@@ -949,7 +986,7 @@ export function ProjectMetricsPanel({
           <section className="grid gap-4 xl:grid-cols-2">
             {[
               ["Cenario CPA base", baseScenario],
-              ["Cenario CPA ideal", idealScenario],
+              [config.idealCpa > 0 ? "Cenario CPA ideal" : "Cenário base — sem CPA alvo definido", idealScenario],
             ].map(([label, scenario]) => {
               const values = scenario as typeof baseScenario;
               return (
@@ -1073,7 +1110,7 @@ export function ProjectMetricsPanel({
           <section className="panel rounded-[24px] p-7">
             <p className="eyebrow">Projecao bloqueada</p>
             <h2 className="mt-2 text-2xl font-black tracking-[-0.04em]">
-              Complete as premissas antes de gerar cenarios
+                Defina as referências para gerar cenários
             </h2>
             <p className="mt-2 max-w-2xl text-xs leading-5 text-[var(--muted)]">
               Sem esses dados, um resultado negativo significa apenas configuracao
@@ -1118,62 +1155,25 @@ export function ProjectMetricsPanel({
               Antes de preencher
             </p>
             <h2 className="mt-2 text-2xl font-black tracking-[-0.04em]">
-              Premissas nao sao dados dos CSVs
+              Selecione os produtos. Os dados calculáveis vêm das integrações.
             </h2>
             <p className="mt-2 max-w-3xl text-xs leading-5 text-white/60">
-              Os arquivos registram trafego e vendas realizados. Os campos abaixo sao
-              decisoes manuais usadas para custos e simulacoes. Preencha somente o que
-              representa a operacao deste projeto.
+              Preços líquidos e quantidades usam as vendas do período de referência. O CPA base usa o gasto registrado quando há um único produto de entrada. Metas, orçamento, custos externos e presença precisam de uma definição sua.
             </p>
             {!configConfirmed && (
               <p className="mt-4 rounded-xl bg-amber-300/15 px-4 py-3 text-[11px] leading-5 text-amber-100">
-                Os valores iniciais ainda nao foram confirmados para este projeto. Revise
-                cada premissa e use &quot;Salvar premissas&quot;.
+                A consulta dos resultados já está disponível. Salve somente se quiser manter as escolhas de referência e os valores personalizados.
               </p>
             )}
           </section>
 
+          <button type="button" className="rounded-xl bg-emerald-100 px-4 py-3 text-xs font-bold text-emerald-950" onClick={() => updateConfig("automaticMetrics", Object.fromEntries(automaticMetricFields.map((field) => [field, true])))}>Usar dados das integrações</button>
           <section className="panel rounded-[24px] p-6">
-            <p className="eyebrow">Periodo e regras financeiras</p>
+            <p className="eyebrow">Regras financeiras opcionais</p>
             <p className="mt-2 text-xs leading-5 text-[var(--muted)]">
-              O periodo e ajustado automaticamente ao importar CSVs, mas pode ser refinado
-              para a analise desejada.
+              Use os filtros acima para escolher o período. Taxas contratuais e participação são decisões da operação, não taxas de venda da plataforma.
             </p>
             <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              <label className="block text-xs font-bold">
-                <span className="flex items-center justify-between gap-2">
-                  Data inicial
-                  <span className="rounded-full bg-emerald-50 px-2 py-1 text-[8px] uppercase tracking-wider text-emerald-800">
-                    CSV / manual
-                  </span>
-                </span>
-                <input
-                  className="field mt-2"
-                  type="date"
-                  value={config.periodStart}
-                  onChange={(event) => updateConfig("periodStart", event.target.value)}
-                />
-                <span className="mt-2 block text-[10px] font-normal leading-4 text-[var(--muted)]">
-                  Primeiro dia considerado nos indicadores.
-                </span>
-              </label>
-              <label className="block text-xs font-bold">
-                <span className="flex items-center justify-between gap-2">
-                  Data final
-                  <span className="rounded-full bg-emerald-50 px-2 py-1 text-[8px] uppercase tracking-wider text-emerald-800">
-                    CSV / manual
-                  </span>
-                </span>
-                <input
-                  className="field mt-2"
-                  type="date"
-                  value={config.periodEnd}
-                  onChange={(event) => updateConfig("periodEnd", event.target.value)}
-                />
-                <span className="mt-2 block text-[10px] font-normal leading-4 text-[var(--muted)]">
-                  Ultimo dia considerado nos indicadores.
-                </span>
-              </label>
               <NumberField
                 label="Taxa sobre trafego"
                 value={config.trafficFeePercent}
@@ -1214,16 +1214,15 @@ export function ProjectMetricsPanel({
               <NumberField label="Automacao / API" value={config.apiBudget} help="Reserva planejada para API ou automacao; nao e venda nem trafego realizado." onChange={(value) => updateConfig("apiBudget", value)} />
               <NumberField label="Remarketing" value={config.remarketingBudget} help="Verba de midia para impactar novamente a audiencia." onChange={(value) => updateConfig("remarketingBudget", value)} />
               <NumberField label="Distribuicao" value={config.distributionBudget} help="Verba de midia para distribuicao de conteudo ou campanhas auxiliares." onChange={(value) => updateConfig("distributionBudget", value)} />
-              <NumberField label="CPA base" value={config.baseCpa} help="Custo por venda usado no cenario conservador." onChange={(value) => updateConfig("baseCpa", value)} />
-              <NumberField label="CPA ideal" value={config.idealCpa} help="Custo por venda desejado no cenario otimista." onChange={(value) => updateConfig("idealCpa", value)} />
+              {referenceField("baseCpa", "CPA base")}
+              <NumberField label="CPA ideal" value={config.idealCpa} help="Meta opcional de custo por venda. Sem meta, a projeção usa somente o CPA base." onChange={(value) => updateConfig("idealCpa", value)} />
             </div>
           </section>
 
           <section className="panel rounded-[24px] p-6">
             <p className="eyebrow">Produtos de referencia</p>
             <p className="mt-2 text-xs leading-5 text-[var(--muted)]">
-              Relacione os papeis usados nas projecoes. &quot;Detectar pelo funil&quot; usa o
-              primeiro produto mapeado com o papel correspondente.
+              Escolha os produtos usados nas projeções. A detecção automática só seleciona quando existe um único produto no papel correspondente. Ao selecionar um único produto de entrada no filtro, ele também serve de referência enquanto não houver outra escolha salva.
             </p>
             <div className="mt-5 grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
               {[
@@ -1244,33 +1243,32 @@ export function ProjectMetricsPanel({
                     }
                   >
                     <option value="">Detectar pelo funil</option>
-                    {mappedProducts.map((product) => (
+                    {mappedProducts.filter((product) => !["ticketProductId", "formationProductId", "downsellProductId"].some((other) => other !== field && config[other as "ticketProductId"] === product.id)).map((product) => (
                       <option key={product.id} value={product.id}>{product.name}</option>
                     ))}
                   </select>
                   <span className="mt-2 block text-[10px] font-normal leading-4 text-[var(--muted)]">
-                    Se nao houver produto mapeado, informe o ticket liquido abaixo.
+                    Selecione uma opção para calcular a referência. Não é necessário repetir o mesmo produto em outros papéis.
                   </span>
                 </label>
               ))}
-               <NumberField label="Preco liquido core" value={config.ticketNetPrice} help="Valor liquido por venda core, usado no faturamento diario e nas projecoes de ingresso." onChange={(value) => updateConfig("ticketNetPrice", value)} />
-               <NumberField label="Preco liquido OB1" value={config.orderBump1NetPrice} help="Valor liquido por venda do primeiro order bump." onChange={(value) => updateConfig("orderBump1NetPrice", value)} />
-               <NumberField label="Preco liquido OB2" value={config.orderBump2NetPrice} help="Valor liquido por venda do segundo order bump." onChange={(value) => updateConfig("orderBump2NetPrice", value)} />
-               <NumberField label="Preco liquido OB3" value={config.orderBump3NetPrice} help="Valor liquido por venda do terceiro order bump." onChange={(value) => updateConfig("orderBump3NetPrice", value)} />
-               <NumberField label="Ticket liquido formacao" value={config.formationNetPrice} help="Valor liquido recebido por venda da formacao ou produto principal." onChange={(value) => updateConfig("formationNetPrice", value)} />
+               {referenceField("ticketNetPrice", "Preço líquido core")}
+               {referenceField("orderBump1NetPrice", "Preço líquido OB1")}
+               {referenceField("orderBump2NetPrice", "Preço líquido OB2")}
+               {referenceField("orderBump3NetPrice", "Preço líquido OB3")}
+               {referenceField("formationNetPrice", "Ticket líquido formação")}
             </div>
           </section>
 
           <section className="panel rounded-[24px] p-6">
             <p className="eyebrow">Base historica para projecao</p>
             <p className="mt-2 text-xs leading-5 text-[var(--muted)]">
-              Use os numeros de uma campanha anterior comparavel. Eles calculam taxas de
-              comparecimento e conversao; nao sao extraidos do CSV diario atual.
+              O período selecionado acima é a referência. As quantidades automáticas vêm das vendas desse período; escolha datas comparáveis à operação que deseja projetar. Vendas de produtos diferentes não comprovam que os mesmos compradores avançaram no funil.
             </p>
             <div className="mt-5 grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
-              <NumberField label="Ingressos vendidos" value={config.historicalTicketSales} help="Quantidade de ingressos vendidos na referencia anterior." onChange={(value) => updateConfig("historicalTicketSales", value)} />
-              <NumberField label="Comparecimentos" value={config.historicalAttendance} help="Quantas pessoas compareceram entre os compradores anteriores." onChange={(value) => updateConfig("historicalAttendance", value)} />
-              <NumberField label="Vendas de formacao" value={config.historicalFormationSales} help="Quantas vendas da formacao ocorreram na referencia anterior." onChange={(value) => updateConfig("historicalFormationSales", value)} />
+              {referenceField("historicalTicketSales", "Ingressos vendidos")}
+              <NumberField label="Comparecimentos" value={config.historicalAttendance} help="Informe presença efetiva dos compradores no mesmo período. Responder um formulário não comprova comparecimento." onChange={(value) => updateConfig("historicalAttendance", value)} />
+              {referenceField("historicalFormationSales", "Vendas de formação")}
             </div>
           </section>
 
@@ -1309,6 +1307,7 @@ export function ProjectMetricsPanel({
           </button>
         </div>
       )}
+      </>}
     </div>
   );
 }

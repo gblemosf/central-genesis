@@ -17,6 +17,9 @@ import {
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { ProjectMetricsPanel } from "@/components/project-metrics-panel";
+import { AnalysisFilters } from "@/components/analysis-filters";
+import { presetPeriod, type AnalysisFilter } from "@/lib/analysis-filters";
+import { dateInTimezone } from "@/lib/dates";
 import { ProjectOperationsPanel, type OperationView } from "@/components/project-operations-panel";
 import { ProjectFormResponses } from "@/components/project-form-responses";
 import type {
@@ -92,6 +95,9 @@ export function ProjectWorkspace({
   googleOAuthConfigured: boolean;
 }) {
   const router = useRouter();
+  const [analysisFilter, setAnalysisFilter] = useState<AnalysisFilter>(() => ({
+    ...presetPeriod("30", dateInTimezone(new Date())), productIds: null,
+  }));
   const [, startTransition] = useTransition();
   const [tab, setTab] = useState<
     "overview" | "metrics" | "forms" | "products" | "settings" | OperationView
@@ -790,8 +796,13 @@ export function ProjectWorkspace({
           ))}
         </div>
       </header>
+      {["sales", "origins", "contacts", "recovery", "results", "metrics"].includes(tab) && (
+        <AnalysisFilters value={analysisFilter} onChange={setAnalysisFilter}
+          products={products.filter((product) => product.mappedProjectId === project.id && !product.archivedAt)} />
+      )}
       {["sales", "origins", "contacts", "recovery", "results"].includes(tab) && (
-        <ProjectOperationsPanel key={tab} projectId={project.id} view={tab as OperationView} demoMode={demoMode || project.legacy} />
+        <ProjectOperationsPanel key={tab} projectId={project.id} view={tab as OperationView} demoMode={demoMode || project.legacy}
+          filter={analysisFilter} products={products} />
       )}
       {initialCatalog.warning && (
         <p className="rounded-xl bg-amber-50 px-4 py-3 text-xs font-medium text-amber-950">
@@ -1607,6 +1618,7 @@ export function ProjectWorkspace({
 
       {tab === "metrics" && (
         <ProjectMetricsPanel
+          filter={analysisFilter}
           projectId={project.id}
           analytics={analytics}
           products={products}
