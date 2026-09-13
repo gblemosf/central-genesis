@@ -7,7 +7,8 @@ export const maxDuration = 300;
 
 export async function POST(request: Request) {
   try {
-    const secret = googleFormsJobSecret();
+    if (!request.headers.get("authorization")?.startsWith("Bearer ")) throw new ApiError("Não autorizado.", 401);
+    const secret = await googleFormsJobSecret();
     const actual = Buffer.from(request.headers.get("authorization") ?? "");
     const expected = Buffer.from(`Bearer ${secret ?? ""}`);
     if (

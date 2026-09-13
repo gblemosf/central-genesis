@@ -1,17 +1,11 @@
 import "server-only";
-import { createHmac } from "node:crypto";
-import { getSupabaseSecretKey } from "@/lib/supabase/env";
+import { ApiError } from "@/lib/api-auth";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
-export function googleFormsJobSecret() {
-  const configured = process.env.GOOGLE_FORMS_SYNC_SECRET?.trim();
-  if (configured) return configured;
-  const serverKey = getSupabaseSecretKey();
-  // Domain separation creates a job-specific token without transmitting the database key.
-  return serverKey
-    ? createHmac("sha256", serverKey)
-        .update(
-          `genesis:google-forms-sync:v1:${process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() ?? ""}`,
-        )
-        .digest("hex")
-    : "";
+export async function googleFormsJobSecret() {
+  const admin = createSupabaseAdminClient();
+  if (!admin) throw new ApiError("Serviço indisponível.", 503);
+  const { data, error } = await admin.rpc("get_google_forms_sync_token");
+  if (error) throw new ApiError("Não foi possível validar a sincronização.", 503);
+  return typeof data === "string" ? data : "";
 }

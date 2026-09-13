@@ -18,7 +18,7 @@ A importação usa lotes de até 200 respostas. O próximo lote, o filtro origin
 
 O job `genesis-google-forms-sync` no Supabase Cron chama `POST /api/jobs/google-forms`, uma vez por minuto. Cada execução atende um formulário, alternando os formulários ativos pela última tentativa. Mais formulários aumentam o intervalo de atualização de cada um. Uma fonte com erro não impede as demais; execuções interrompidas têm sua reserva liberada após dez minutos.
 
-O token e o destino do job ficam no Supabase Vault, em `genesis_google_forms_job_token` e `genesis_google_forms_job_url`. O endpoint aceita `GOOGLE_FORMS_SYNC_SECRET` ou um token HMAC específico do job, derivado da chave de servidor e URL do Supabase. A chave do banco não é transmitida ao endpoint. Se a chave de servidor mudar, atualize também o token dedicado no Vault. [Agendamento de funções no Supabase](https://supabase.com/docs/guides/functions/schedule-functions).
+O token e o destino do job ficam no Supabase Vault, em `genesis_google_forms_job_token` e `genesis_google_forms_job_url`. O servidor consulta somente esse token dedicado pela função restrita `get_google_forms_sync_token`. A chave do banco não é transmitida ao endpoint. Se for necessário rotacionar o token, basta atualizar o segredo dedicado no Vault: agendador e aplicação consultam a mesma fonte. [Agendamento de funções no Supabase](https://supabase.com/docs/guides/functions/schedule-functions).
 
 Para ativar Google em produção:
 
@@ -46,6 +46,6 @@ Contatos são relacionados por e-mail ou telefone no mesmo projeto. Conflitos en
 
 ## Implantação e validação
 
-Migration: `20260913010155_project_operations_workspace.sql`. Publicar também `hubla-webhook` e a aplicação Next.js. O receptor Hotmart em uso continua sendo a rota da aplicação; a antiga Edge Function Hotmart está desativada.
+Migrations: `20260913010155_project_operations_workspace.sql` e `20260913014322_google_forms_job_vault_auth.sql`. Publicar também `hubla-webhook` e a aplicação Next.js. O receptor Hotmart em uso continua sendo a rota da aplicação; a antiga Edge Function Hotmart está desativada.
 
 Verificações: testes unitários/API, testes SQL de isolamento, idempotência e preservação das perguntas, verificação de tipos, lint e build. A conferência visual usa dados fictícios locais, sem registrar vendas de teste em produção.

@@ -65,5 +65,8 @@ select is((select count(*) from public.sales_events), 0::bigint, 'another user c
 reset role;
 select ok(not has_function_privilege('anon', 'public.enrich_hotmart_sale_contact()', 'EXECUTE'), 'contact enrichment cannot be invoked anonymously');
 select ok(not has_function_privilege('authenticated', 'public.ingest_google_form_response(uuid,jsonb)', 'EXECUTE'), 'response ingestion remains service-only');
+select ok(not has_function_privilege('anon', 'public.get_google_forms_sync_token()', 'EXECUTE'), 'anonymous requests cannot read the scheduled job token');
+select ok(not has_function_privilege('authenticated', 'public.get_google_forms_sync_token()', 'EXECUTE'), 'browser sessions cannot read the scheduled job token');
+select ok(has_function_privilege('service_role', 'public.get_google_forms_sync_token()', 'EXECUTE'), 'server validates scheduled jobs against the same Vault token');
 select * from finish();
 rollback;

@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 vi.mock("@/lib/google/sync", () => ({ syncProjectGoogleForm: vi.fn() }));
+vi.mock("@/lib/google/job-auth", () => ({ googleFormsJobSecret: async () => "test-job-secret" }));
 const { admin } = vi.hoisted(() => ({ admin: vi.fn() }));
 vi.mock("@/lib/supabase/admin", () => ({ createSupabaseAdminClient: admin }));
 import { POST } from "./route";
