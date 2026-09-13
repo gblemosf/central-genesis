@@ -45,6 +45,16 @@ export async function hotmartHistoryPage(
     );
   }
   if (!response.ok) {
+    // Keep failures diagnosable without logging tokens, transaction IDs or buyers.
+    console.warn("Hotmart history request failed", {
+      endpoint,
+      status: response.status,
+      startDate: query.get("start_date"),
+      endDate: query.get("end_date"),
+      purchaseStatus: query.get("transaction_status"),
+      hasTransaction: query.has("transaction"),
+      hasPageToken: query.has("page_token"),
+    });
     if ([401, 403].includes(response.status))
       throw new ApiError(
         "A Hotmart recusou o acesso ao histórico ou aos detalhes da venda. Confira as permissões da conexão.",
@@ -56,7 +66,7 @@ export async function hotmartHistoryPage(
         429,
       );
     throw new ApiError(
-      "Não foi possível consultar o histórico da Hotmart. Tente novamente.",
+      `Não foi possível consultar ${endpoint === "history" ? "o histórico" : endpoint === "commissions" ? "as comissões" : "os participantes"} da Hotmart (HTTP ${response.status}). Tente novamente.`,
       503,
     );
   }
