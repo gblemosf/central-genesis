@@ -15,10 +15,10 @@ import {
   Save,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { ProjectMetricsPanel } from "@/components/project-metrics-panel";
 import { AnalysisFilters } from "@/components/analysis-filters";
-import { presetPeriod, type AnalysisFilter } from "@/lib/analysis-filters";
+import { filterProductMetrics, presetPeriod, type AnalysisFilter } from "@/lib/analysis-filters";
 import { dateInTimezone } from "@/lib/dates";
 import { ProjectOperationsPanel, type OperationView } from "@/components/project-operations-panel";
 import { ProjectFormResponses } from "@/components/project-form-responses";
@@ -102,6 +102,24 @@ export function ProjectWorkspace({
   const [tab, setTab] = useState<
     "overview" | "metrics" | "forms" | "products" | "settings" | OperationView
   >("overview");
+  const [overviewData, setOverviewData] = useState<ProjectAnalytics | null>(null);
+  const [overviewError, setOverviewError] = useState("");
+  useEffect(() => {
+    if (tab !== "overview" || demoMode || project.legacy) return;
+    const controller = new AbortController();
+    async function load() {
+      try {
+        const response = await fetch(`/api/projects/${project.id}/analytics?${new URLSearchParams({ periodStart: analysisFilter.start, periodEnd: analysisFilter.end })}`, { signal: controller.signal });
+        const body = await response.json();
+        if (!response.ok || body.data?.warning) throw new Error(body.error ?? "Não foi possível consultar este período.");
+        if (!controller.signal.aborted) { setOverviewData(body.data); setOverviewError(""); }
+      } catch (cause) {
+        if (!controller.signal.aborted) { setOverviewData(null); setOverviewError(cause instanceof Error ? cause.message : "Falha ao carregar os dados."); }
+      }
+    }
+    void load();
+    return () => controller.abort();
+  }, [analysisFilter.start, analysisFilter.end, tab, demoMode, project.id, project.legacy]);
   const demoProducts = productSets[project.id] ?? [
     { name: "Produto principal", stage: "Core", price: 0 },
   ];
@@ -191,7 +209,12 @@ export function ProjectWorkspace({
   const nextStagePosition = Math.max(0, ...activeStages.map((stage) => stage.position)) + 1;
   const activeProducts = products.filter((product) => !product.archivedAt);
   const archivedProducts = products.filter((product) => product.archivedAt);
-  const totals = calculatePerformance(project.dailyMetrics);
+  const overviewReady = demoMode || project.legacy ||
+    (overviewData?.config.periodStart === analysisFilter.start && overviewData?.config.periodEnd === analysisFilter.end);
+  const overviewRows = filterProductMetrics(overviewReady ? (overviewData?.dailyMetrics ?? analytics.dailyMetrics).filter(
+    (row) => row.date >= analysisFilter.start && row.date <= analysisFilter.end,
+  ) : [], analysisFilter.productIds);
+  const totals = calculatePerformance(overviewRows);
   const readiness = getProjectReadiness(
     project,
     {
@@ -202,7 +225,7 @@ export function ProjectWorkspace({
     },
     analytics,
   );
-  const hasProjectData = project.dailyMetrics.some(
+  const hasProjectData = overviewRows.some(
     (metric) =>
       metric.investment !== 0 ||
       metric.revenue !== 0 ||
@@ -212,7 +235,7 @@ export function ProjectWorkspace({
       metric.checkouts !== 0 ||
       metric.coreSales !== 0,
   );
-  const hasTrafficData = project.dailyMetrics.some(
+  const hasTrafficData = overviewRows.some(
     (metric) =>
       metric.investment !== 0 ||
       metric.impressions !== 0 ||
@@ -220,18 +243,19 @@ export function ProjectWorkspace({
       metric.pageViews !== 0 ||
       metric.checkouts !== 0,
   );
-  const hasSalesData = project.dailyMetrics.some(
+  const hasSalesData = overviewRows.some(
     (metric) => metric.revenue !== 0 || metric.coreSales !== 0,
   );
-  const trafficSourceSummary = analytics.dataSources.csvDailyRows > 0
-    ? `CSV diario (${analytics.dataSources.csvDailyRows} linhas)`
-    : analytics.dataSources.metaTrafficRows > 0
-      ? `Meta (${analytics.dataSources.metaTrafficRows} dias)`
+  const overviewSources = overviewData?.dataSources ?? analytics.dataSources;
+  const trafficSourceSummary = overviewSources.csvDailyRows > 0
+    ? `CSV diario (${overviewSources.csvDailyRows} linhas)`
+    : overviewSources.metaTrafficRows > 0
+      ? `Meta (${overviewSources.metaTrafficRows} dias)`
       : "Sem fonte";
-  const salesSourceSummary = analytics.dataSources.csvDailyRows > 0
-    ? `CSV diario (${analytics.dataSources.csvDailyRows} linhas)`
-    : analytics.dataSources.webhookSalesEvents > 0
-      ? `Webhook (${analytics.dataSources.webhookSalesEvents} eventos)`
+  const salesSourceSummary = overviewSources.csvDailyRows > 0
+    ? `CSV diario (${overviewSources.csvDailyRows} linhas)`
+    : overviewSources.webhookSalesEvents > 0
+      ? `API / webhook (${overviewSources.webhookSalesEvents} eventos)`
       : "Sem fonte";
 
   async function saveProducts() {
@@ -686,8 +710,8 @@ export function ProjectWorkspace({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          since: analytics.config.periodStart,
-          until: analytics.config.periodEnd,
+          since: analysisFilter.start,
+          until: analysisFilter.end,
         }),
       });
       const body = (await response.json().catch(() => null)) as
@@ -796,7 +820,7 @@ export function ProjectWorkspace({
           ))}
         </div>
       </header>
-      {["sales", "origins", "contacts", "recovery", "results", "metrics"].includes(tab) && (
+      {["overview", "sales", "origins", "contacts", "recovery", "results", "metrics"].includes(tab) && (
         <AnalysisFilters value={analysisFilter} onChange={setAnalysisFilter}
           products={products.filter((product) => product.mappedProjectId === project.id && !product.archivedAt)} />
       )}
@@ -863,12 +887,14 @@ export function ProjectWorkspace({
       )}
 
       {tab === "overview" && (
+        !overviewReady ? <p role="status" className="panel rounded-xl p-5 text-sm">{overviewError || "Carregando o período selecionado…"}</p> :
         <>
+          {analysisFilter.productIds !== null && <p className="rounded-xl bg-blue-50 p-4 text-xs leading-5">Vendas e receitas dos produtos selecionados. Tráfego e investimento são da conta inteira; CPA, ROAS e saldo por produto dependem da divisão dos gastos.</p>}
           {!hasProjectData && (
             <section className="rounded-[24px] border border-amber-200 bg-amber-50 p-6 text-amber-950">
-              <p className="eyebrow text-amber-800">Projeto criado, configuracao pendente</p>
+              <p className="eyebrow text-amber-800">Nenhum registro nesta seleção</p>
               <h2 className="mt-2 text-2xl font-black tracking-[-0.04em]">
-                Complete os primeiros passos para liberar os indicadores
+                Selecione outro período ou confira as fontes
               </h2>
               <div className="mt-6 grid gap-3 lg:grid-cols-3">
                 {[
@@ -898,8 +924,8 @@ export function ProjectWorkspace({
             {[
               ["Faturamento observado", hasProjectData ? formatCurrency(totals.revenue) : "Sem dados"],
               ["Investimento em midia", hasProjectData ? formatCurrency(totals.investment) : "Sem dados"],
-              ["Saldo apos midia", hasProjectData ? formatCurrency(totals.profit) : "Sem dados"],
-              ["ROAS", hasProjectData ? `${totals.roas.toFixed(2)}x` : "Sem dados"],
+              ["Saldo apos midia", hasProjectData && hasTrafficData && analysisFilter.productIds === null ? formatCurrency(totals.profit) : "Sem dados"],
+              ["ROAS", hasProjectData && totals.investment > 0 && analysisFilter.productIds === null ? `${totals.roas.toFixed(2)}x` : "Sem dados"],
             ].map(([label, value]) => (
               <article key={label} className="panel rounded-[20px] p-5">
                 <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted)]">
@@ -913,8 +939,7 @@ export function ProjectWorkspace({
             <article className="panel rounded-[24px] p-6">
               <p className="eyebrow">Indicadores de funil</p>
               <p className="mt-2 text-[10px] leading-4 text-[var(--muted)]">
-                Visao do mes atual. Custos operacionais completos aparecem em Metricas &gt;
-                Financeiro.
+                Período e produtos selecionados acima. Custos operacionais registrados aparecem em Métricas &gt; Financeiro.
               </p>
               <div className="mt-6 grid gap-5 sm:grid-cols-2">
                 {[
@@ -922,7 +947,7 @@ export function ProjectWorkspace({
                   ["Connect rate", hasTrafficData ? formatPercent(totals.connectRate) : "Sem dados"],
                   ["Pagina para checkout", hasTrafficData ? formatPercent(totals.checkoutRate) : "Sem dados"],
                   ["Vendas core", hasSalesData ? formatNumber(totals.coreSales) : "Sem dados"],
-                  ["CPA", hasTrafficData && hasSalesData ? formatCurrency(totals.cpa) : "Sem dados"],
+                  ["CPA", hasTrafficData && hasSalesData && analysisFilter.productIds === null ? formatCurrency(totals.cpa) : "Sem dados"],
                   ["AOV", hasSalesData ? formatCurrency(totals.aov) : "Sem dados"],
                 ].map(([label, value]) => (
                   <div key={label} className="border-b border-[var(--line)] pb-3">
@@ -956,7 +981,7 @@ export function ProjectWorkspace({
                 </div>
                 <div className="flex justify-between pb-3">
                   <span className="text-white/45">Ultimo dia com dados</span>
-                  <span className="font-bold">{project.lastSyncAt ?? "Pendente"}</span>
+                  <span className="font-bold">{overviewRows.filter((row) => row.revenue || row.investment || row.coreSales || row.impressions).at(-1)?.date ?? "Sem dados no período"}</span>
                 </div>
                 </div>
                 <button
@@ -972,6 +997,7 @@ export function ProjectWorkspace({
                   )}
                   Sincronizar Meta
                 </button>
+                {!demoMode && metaAccountId && <p className="mt-3 text-[10px] leading-4 text-white/60">Atualização automática periódica nos projetos ativos. Use o botão para consultar agora o período selecionado.</p>}
                 {!demoMode && !metaAccountId && (
                   <p className="mt-3 text-[10px] leading-4 text-white/45">
                     Vincule uma conta em Configuracoes ou use os CSVs em Metricas &gt;

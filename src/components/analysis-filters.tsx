@@ -46,6 +46,6 @@ export function AnalysisFilters({ value, onChange, products }: {
         disabled={!validAnalysisPeriod(draft.start, draft.end)} onClick={() => onChange({ ...value, ...draft })}>Aplicar período</button>
       {!validAnalysisPeriod(draft.start, draft.end) && <p>Escolha datas válidas, em ordem, com até 366 dias.</p>}
     </div>}
-    <p className="text-[10px] text-[var(--muted)]">{value.start.split("-").reverse().join("/")} a {value.end.split("-").reverse().join("/")} · Inclui os dois dias · A seleção é mantida ao trocar entre Vendas, Origens, Contatos, Recuperação, Resultados e Métricas.</p>
+    <p className="text-[10px] text-[var(--muted)]">{value.start.split("-").reverse().join("/")} a {value.end.split("-").reverse().join("/")} · Inclui os dois dias · A seleção é mantida ao trocar entre Resumo, Vendas, Origens, Contatos, Recuperação, Resultados e Métricas.</p>
   </section>;
 }
