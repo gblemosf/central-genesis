@@ -49,7 +49,7 @@ describe("session proxy", () => {
     expect(response.headers.get("location")).toBe("http://localhost/login");
   });
 
-  it.each(["/login", "/privacy", "/terms", "/data-deletion", "/api/webhooks/hotmart/test"])(
+  it.each(["/login", "/privacy", "/terms", "/data-deletion", "/api/webhooks/hotmart/test", "/api/jobs/google-forms"])(
     "mantem %s independente da disponibilidade do login", async (path) => {
       getClaims.mockRejectedValue(new Error("Auth unavailable"));
       const response = await updateSession(new NextRequest(`http://localhost${path}`));
@@ -62,6 +62,11 @@ describe("session proxy", () => {
   it("nao trata prefixos semelhantes como paginas publicas", async () => {
     const response = await updateSession(new NextRequest("http://localhost/login-private"));
     expect(response.status).toBe(307);
+  });
+
+  it("keeps other job paths behind session authentication", async () => {
+    const response = await updateSession(new NextRequest("http://localhost/api/jobs/google-forms-private"));
+    expect(response.status).toBe(401);
   });
 
   it("preserva cookies removidos ao rejeitar uma sessao", async () => {

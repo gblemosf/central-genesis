@@ -9,8 +9,8 @@ export async function updateSession(request: NextRequest) {
   const isPublicRoute = publicPaths.some(
     (path) => pathname === path || pathname.startsWith(`${path}/`),
   );
-  // Provider webhooks authenticate themselves and must not depend on Supabase Auth.
-  if (isPublicRoute) return NextResponse.next({ request });
+  // Webhooks and the scheduled Forms job authenticate themselves with dedicated tokens.
+  if (isPublicRoute || pathname === "/api/jobs/google-forms") return NextResponse.next({ request });
 
   const isApiRoute = pathname === "/api" || pathname.startsWith("/api/");
   const loginUrl = new URL("/login", request.url);
