@@ -14,7 +14,9 @@ vi.mock("@/lib/secret-store", () => ({ readConnectionSecret: mocks.secret }));
 vi.mock("@/lib/provider-verification", () => ({
   hotmartAccessToken: mocks.token,
 }));
-vi.mock("@/lib/hotmart-sales-http", () => ({ requestHotmartSales: mocks.fetch }));
+vi.mock("@/lib/hotmart-sales-http", () => ({
+  requestHotmartSales: mocks.fetch,
+}));
 import { processHotmartHistoryJob } from "./hotmart-history-worker";
 import { POST } from "@/app/api/jobs/hotmart-history/route";
 const job = {
@@ -125,6 +127,35 @@ describe("Hotmart background history worker", () => {
     expect(mocks.update).toHaveBeenCalledWith(
       expect.objectContaining({ status: "failed" }),
     );
+  });
+  it("records a useful HTTP failure without logging the provider's private description", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      mocks.rpc.mockResolvedValueOnce({ data: [job], error: null });
+      mocks.fetch.mockResolvedValue(
+        Response.json(
+          {
+            error: "invalid_parameter",
+            error_description: "private buyer and token details",
+          },
+          { status: 400 },
+        ),
+      );
+      expect(await processHotmartHistoryJob()).toMatchObject({
+        retrying: true,
+      });
+      expect(warn).toHaveBeenCalledWith(
+        "Hotmart history request failed",
+        expect.objectContaining({
+          status: 400,
+          errorCode: "invalid_parameter",
+        }),
+      );
+      expect(JSON.stringify(warn.mock.calls)).not.toContain("private buyer");
+      expect(JSON.stringify(mocks.update.mock.calls)).toContain("HTTP 400");
+    } finally {
+      warn.mockRestore();
+    }
   });
   it("authenticates scheduled calls independently of browser login", async () => {
     expect(
