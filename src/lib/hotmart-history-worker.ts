@@ -33,7 +33,11 @@ export async function hotmartHistoryPage(
     response = await fetch(
       `https://developers.hotmart.com/payments/api/v1/sales/${endpoint}?${query}`,
       {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
         cache: "no-store",
         signal: AbortSignal.timeout(15_000),
       },
