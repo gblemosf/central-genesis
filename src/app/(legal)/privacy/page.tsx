@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 
 export const metadata: Metadata = { title: "Politica de Privacidade" };
 
@@ -9,7 +10,7 @@ export default function PrivacyPage() {
       <h1 className="mt-3 text-3xl font-black tracking-[-0.05em] sm:text-5xl">
         Politica de Privacidade
       </h1>
-      <p className="mt-4 text-sm text-[var(--muted)]">Vigente desde 1 de agosto de 2026.</p>
+      <p className="mt-4 text-sm text-[var(--muted)]">Atualizada em 13 de setembro de 2026.</p>
 
       <div className="mt-8 space-y-7 text-sm leading-7 text-[var(--muted)]">
         <section>
@@ -46,6 +47,41 @@ export default function PrivacyPage() {
             plataformas que o usuario decidir conectar, como Meta e provedores de vendas.
             Nao vendemos dados pessoais. O acesso ocorre somente para operacao do servico,
             suporte, seguranca ou cumprimento de lei.
+          </p>
+        </section>
+        <section>
+          <h2 className="text-lg font-black text-[var(--ink)]">4.1 Google Forms e Google Sheets</h2>
+          <p className="mt-2">
+            Quando um administrador conecta uma conta Google, solicitamos permissões
+            de leitura de formulários, respostas e planilhas. A conta conectada deve
+            ter acesso aos arquivos. O administrador escolhe os formulários vinculados
+            a cada projeto; a integração não modifica os arquivos de origem.
+          </p>
+          <p className="mt-2">
+            Importamos a estrutura, as perguntas e as respostas desses formulários,
+            incluindo identificadores, horários, dados de contato e origens informados
+            nas respostas. Esses dados são armazenados no Supabase para apresentar
+            tabelas, contatos, conversões e resultados aos usuários autorizados da
+            organização. Os valores das abas da planilha de respostas vinculada são
+            consultados para exibição e exportação solicitadas pelo usuário.
+          </p>
+          <p className="mt-2">
+            Tokens de autorização ficam no cofre operacional e permitem as
+            sincronizações seguintes. Vercel e Supabase processam os dados para operar
+            essas funcionalidades. Dados obtidos pelas APIs Google não são vendidos,
+            enviados a plataformas de publicidade, utilizados para anúncios
+            personalizados ou empregados no treinamento de modelos de inteligência
+            artificial. Seu uso e transferência seguem a{" "}
+            <a href="https://developers.google.com/terms/api-services-user-data-policy" className="font-bold underline">
+              Política de Dados do Usuário dos Serviços de API do Google
+            </a>, incluindo os requisitos de Uso Limitado.
+          </p>
+          <p className="mt-2">
+            A conexão pode ser revogada em Integrações ou nas permissões da conta
+            Google. Isso interrompe novas consultas; respostas já importadas seguem
+            os critérios de retenção desta política. A exclusão pode ser solicitada
+            pelo contato abaixo, conforme as{" "}
+            <Link href="/data-deletion" className="font-bold underline">instruções de exclusão de dados</Link>.
           </p>
         </section>
         <section>

@@ -28,6 +28,10 @@ Para ativar Google em produção:
 4. Em Integrações, autorizar a conta que tem acesso aos formulários e planilhas. Os escopos são somente leitura do formulário, respostas e planilhas.
 5. No projeto, vincular o formulário pela URL de edição e executar a primeira sincronização. As seguintes passam pela fila automática.
 
+Identificação pública do aplicativo: `/about`; política de privacidade: `/privacy`; termos: `/terms`; instruções de exclusão: `/data-deletion`. Essas páginas podem ser acessadas sem sessão. O Google exige a identificação pública e a política para o modo de produção. Em um aplicativo externo no modo Testing, os tokens de atualização destes escopos expiram em sete dias; depois de publicar o aplicativo, reconecte a conta para emitir uma autorização no novo estado. [OAuth Google](https://developers.google.com/identity/protocols/oauth2).
+
+A conta Google conectada pode receber formulários compartilhados como Editor e a planilha vinculada como Leitor. A conta que administra o cliente OAuth não precisa ser a proprietária original dos formulários. As permissões do formulário e da planilha devem ser conferidas separadamente.
+
 Uma planilha de consolidação que não esteja vinculada ao formulário não é importada por essa opção. Dados de vendas são recebidos diretamente das plataformas; a leitura da planilha não cria vendas, contatos ou alterações financeiras automaticamente.
 
 ## Valores financeiros e atribuição

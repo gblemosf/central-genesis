@@ -7,7 +7,7 @@ export default function LegalLayout({ children }: { children: React.ReactNode })
     <main className="min-h-screen px-5 py-8 sm:px-8 sm:py-12">
       <div className="mx-auto max-w-4xl">
         <header className="mb-8 flex flex-col gap-5 border-b border-[var(--line)] pb-6 sm:flex-row sm:items-center sm:justify-between">
-          <Link href="/" className="flex items-center gap-3">
+          <Link href="/about" className="flex items-center gap-3">
             <Image
               src={genesisLogoUrl}
               alt="Central Genesis"
@@ -23,6 +23,7 @@ export default function LegalLayout({ children }: { children: React.ReactNode })
             </span>
           </Link>
           <nav className="flex flex-wrap gap-4 text-xs font-bold text-[var(--muted)]">
+            <Link href="/about">Sobre</Link>
             <Link href="/privacy">Privacidade</Link>
             <Link href="/terms">Termos</Link>
             <Link href="/data-deletion">Excluir dados</Link>

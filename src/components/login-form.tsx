@@ -216,6 +216,12 @@ export function LoginForm({ demoMode }: { demoMode: boolean }) {
             </div>
           )}
 
+          <nav className="mt-6 flex flex-wrap justify-center gap-4 text-xs text-white/65" aria-label="Informações do serviço">
+            <Link href="/about">Sobre a Central</Link>
+            <Link href="/privacy">Privacidade</Link>
+            <Link href="/terms">Termos</Link>
+          </nav>
+
           {demoMode && (
             <div className="mt-6 rounded-xl border border-white/8 bg-white/[0.035] p-4 text-xs leading-5 text-white/48">
               Supabase nao configurado. Voce pode navegar com dados demonstrativos.

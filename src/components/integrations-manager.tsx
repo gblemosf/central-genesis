@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { useState } from "react";
+import Link from "next/link";
 import type {
   IntegrationConnection,
   Provider,
@@ -725,12 +726,18 @@ export function IntegrationsManager({
             </strong>
             <small className="mt-2 block max-w-56 text-[11px] leading-5 text-sky-900/70">
               {googleOAuthConfigured
-                ? "Autorize uma conta Google da organizacao para ler formularios e respostas."
+                ? "Autorize a leitura de formularios, respostas e planilhas vinculadas para apresenta-los nos projetos."
                 : "Faltam as credenciais OAuth do Google no ambiente publicado. Revise Configuracoes."}
             </small>
           </span>
         </button>
       </section>
+
+      <p className="text-xs leading-6 text-[var(--muted)]">
+        Respostas Google sincronizadas ficam armazenadas para consulta nos projetos.
+        Você pode revogar a conexão em Integrações. Veja os detalhes na{" "}
+        <Link href="/privacy" className="font-bold underline">Política de Privacidade</Link>.
+      </p>
 
       <section className="rounded-[24px] bg-[var(--sidebar)] p-6 text-white">
         <div className="flex items-start gap-4">
