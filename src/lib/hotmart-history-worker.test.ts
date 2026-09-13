@@ -14,6 +14,7 @@ vi.mock("@/lib/secret-store", () => ({ readConnectionSecret: mocks.secret }));
 vi.mock("@/lib/provider-verification", () => ({
   hotmartAccessToken: mocks.token,
 }));
+vi.mock("@/lib/hotmart-sales-http", () => ({ requestHotmartSales: mocks.fetch }));
 import { processHotmartHistoryJob } from "./hotmart-history-worker";
 import { POST } from "@/app/api/jobs/hotmart-history/route";
 const job = {

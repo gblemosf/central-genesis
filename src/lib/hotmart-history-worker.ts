@@ -5,6 +5,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { readConnectionSecret } from "@/lib/secret-store";
 import { decodeProviderCredentials } from "@/lib/provider-credentials";
 import { hotmartAccessToken } from "@/lib/provider-verification";
+import { requestHotmartSales } from "@/lib/hotmart-sales-http";
 import {
   historyStatuses,
   historyWindow,
@@ -30,18 +31,7 @@ export async function hotmartHistoryPage(
 ) {
   let response: Response;
   try {
-    response = await fetch(
-      `https://developers.hotmart.com/payments/api/v1/sales/${endpoint}?${query}`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: "application/json",
-          "Content-Type": "application/json",
-        },
-        cache: "no-store",
-        signal: AbortSignal.timeout(15_000),
-      },
-    );
+    response = await requestHotmartSales(token, endpoint, query);
   } catch {
     throw new ApiError(
       "A Hotmart não respondeu. A importação tentará novamente.",
