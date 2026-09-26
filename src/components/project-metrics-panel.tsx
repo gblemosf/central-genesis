@@ -170,6 +170,8 @@ export function ProjectMetricsPanel({
   demoMode,
   readOnly = false,
   filter,
+  view: controlledView,
+  onViewChange,
 }: {
   projectId: string;
   analytics: ProjectAnalytics;
@@ -178,6 +180,8 @@ export function ProjectMetricsPanel({
   demoMode: boolean;
   readOnly?: boolean;
   filter: AnalysisFilter;
+  view?: "daily" | "financial" | "planning" | "data" | "config";
+  onViewChange?: (view: "daily" | "financial" | "planning" | "data" | "config") => void;
 }) {
   const router = useRouter();
   const [loadedAnalytics, setLoadedAnalytics] = useState<ProjectAnalytics | null>(null);
@@ -193,9 +197,11 @@ export function ProjectMetricsPanel({
     analytics.dataSources.metaTrafficRows > 0 ||
     analytics.dataSources.webhookSalesEvents > 0;
   const [isRefreshing, startTransition] = useTransition();
-  const [view, setView] = useState<
+  const [localView, setLocalView] = useState<
     "daily" | "financial" | "planning" | "data" | "config"
   >(hasObservedData ? "daily" : "data");
+  const view = controlledView ?? localView;
+  const setView = onViewChange ?? setLocalView;
   const [config, setConfig] = useState(analytics.config);
   const [configConfirmed, setConfigConfirmed] = useState(analytics.configSaved);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">(
@@ -531,7 +537,7 @@ export function ProjectMetricsPanel({
       {productSubset && <p className="rounded-xl bg-blue-50 p-4 text-xs leading-5">Receitas e vendas refletem os produtos selecionados. Tráfego e custos pertencem ao projeto inteiro; CPA, ROAS, margem e lucro por produto ficam indisponíveis sem divisão dos gastos por produto.</p>}
       {!demoMode && !readOnly && (loadingPeriod || config.periodStart !== filter.start || config.periodEnd !== filter.end) ?
         <p className="panel rounded-xl p-5 text-sm">{loadingPeriod ? "Aguarde para consultar os resultados atualizados." : "Não foi possível carregar a seleção. Os números do período anterior estão ocultos."}</p> : <>
-      <div className="flex flex-wrap gap-1 rounded-xl border border-[var(--line)] bg-white/45 p-1">
+      {!controlledView && <div className="flex flex-wrap gap-1 rounded-xl border border-[var(--line)] bg-white/45 p-1">
         {[
           ["daily", "Metricas diarias"],
           ["financial", "Financeiro"],
@@ -550,7 +556,7 @@ export function ProjectMetricsPanel({
             {label}
           </button>
         ))}
-      </div>
+      </div>}
 
       {!hasAnySourceRows && (
         <section className="rounded-[24px] border border-amber-200 bg-amber-50 p-6 text-amber-950">
@@ -726,7 +732,7 @@ export function ProjectMetricsPanel({
         <div className="space-y-4">
           <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
             {[
-              ["Faturamento total", formatCurrency(financial.revenue)],
+              ["Receita registrada", formatCurrency(financial.revenue)],
               ["Custo total", formatCurrency(financial.totalCost)],
               ["Resultado com custos registrados", productSubset ? "N/D" : formatCurrency(financial.profit)],
               ["Margem", productSubset ? "N/D" : formatPercent(financial.margin)],

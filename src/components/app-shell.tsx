@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  Activity,
   Blocks,
   ChevronRight,
   FlaskConical,
@@ -11,20 +10,19 @@ import {
   LayoutDashboard,
   Menu,
   Settings,
-  ShieldCheck,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { GenesisLogo } from "@/components/genesis-logo";
 import { SignOutButton } from "@/components/sign-out-button";
 import { cn } from "@/lib/utils";
 
 const navigation = [
-  { href: "/overview", label: "Visao geral", icon: LayoutDashboard },
+  { href: "/overview", label: "Visão geral", icon: LayoutDashboard },
   { href: "/projects", label: "Projetos", icon: FolderKanban },
-  { href: "/integrations", label: "Integracoes", icon: Blocks },
+  { href: "/integrations", label: "Integrações", icon: Blocks },
   { href: "/simulator", label: "Simulador", icon: FlaskConical },
-  { href: "/settings", label: "Configuracoes", icon: Settings },
+  { href: "/settings", label: "Configurações", icon: Settings },
 ];
 
 interface AppShellProps {
@@ -36,12 +34,32 @@ interface AppShellProps {
 export function AppShell({ children, userLabel, demoMode }: AppShellProps) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const menuButton = useRef<HTMLButtonElement>(null);
+  const sidebar = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { setOpen(false); menuButton.current?.focus(); }
+      if (event.key === "Tab" && window.matchMedia("(max-width: 1023px)").matches) {
+        const links = Array.from(sidebar.current?.querySelectorAll<HTMLElement>("a[href], button:not(:disabled)") ?? []);
+        const first = menuButton.current, last = links.at(-1);
+        if (event.shiftKey && document.activeElement === first && last) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && document.activeElement === last && first) { event.preventDefault(); first.focus(); }
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
 
   return (
     <div className="min-h-screen bg-[var(--canvas)] text-[var(--ink)]">
+      <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:rounded-xl focus:bg-white focus:p-4">Ir para o conteúdo</a>
       <button
+        ref={menuButton}
         type="button"
-        aria-label="Abrir menu"
+        aria-label={open ? "Fechar navegação" : "Abrir menu"}
+        aria-expanded={open}
+        aria-controls="app-navigation"
         className="fixed left-4 top-4 z-50 grid size-11 place-items-center rounded-full border border-white/10 bg-[var(--sidebar)] text-white shadow-xl lg:hidden"
         onClick={() => setOpen((value) => !value)}
       >
@@ -49,9 +67,11 @@ export function AppShell({ children, userLabel, demoMode }: AppShellProps) {
       </button>
 
       <aside
+        ref={sidebar}
+        id="app-navigation"
         className={cn(
-          "fixed inset-y-0 left-0 z-40 flex w-[272px] flex-col border-r border-white/8 bg-[var(--sidebar)] px-5 py-6 text-white transition-transform duration-300 lg:translate-x-0",
-          open ? "translate-x-0" : "-translate-x-full",
+          "fixed inset-y-0 left-0 z-40 flex w-[272px] flex-col overflow-y-auto border-r border-white/8 bg-[var(--sidebar)] px-5 py-6 text-white transition-transform duration-300 lg:visible lg:translate-x-0",
+          open ? "visible translate-x-0" : "invisible -translate-x-full",
         )}
       >
         <div className="mb-9 flex items-center gap-3 px-2">
@@ -66,7 +86,7 @@ export function AppShell({ children, userLabel, demoMode }: AppShellProps) {
           </div>
         </div>
 
-        <nav className="space-y-1">
+        <nav className="space-y-1" aria-label="Navegação principal">
           {navigation.map((item) => {
             const active = pathname.startsWith(item.href);
             const Icon = item.icon;
@@ -74,6 +94,7 @@ export function AppShell({ children, userLabel, demoMode }: AppShellProps) {
               <Link
                 key={item.href}
                 href={item.href}
+                aria-current={active ? "page" : undefined}
                 onClick={() => setOpen(false)}
                 className={cn(
                   "group flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-white/58 transition",
@@ -97,33 +118,17 @@ export function AppShell({ children, userLabel, demoMode }: AppShellProps) {
         </nav>
 
         <div className="mt-auto space-y-4">
-          <div className="rounded-2xl border border-white/8 bg-white/[0.035] p-4">
-            <div className="mb-3 flex items-center gap-2 text-xs font-semibold text-white/78">
-              <Activity size={15} className="text-[var(--signal)]" />
-              Operacao monitorada
-            </div>
-            <div className="space-y-2 text-[11px] text-white/42">
-              <div className="flex justify-between">
-                <span>Supabase</span>
-                <span className="text-[var(--mint)]">
-                  {demoMode ? "Demo" : "Conectado"}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span>Protecao</span>
-                <span className="flex items-center gap-1 text-white/70">
-                  <ShieldCheck size={12} /> RLS
-                </span>
-              </div>
-            </div>
-          </div>
+          <Link href="/integrations" onClick={() => setOpen(false)} className="block rounded-2xl border border-white/10 bg-white/5 p-4 text-xs leading-5 text-white/70">
+            {demoMode ? "Ambiente de demonstração" : "Conexões e sincronizações"}
+            <span className="mt-1 block text-white/50">{demoMode ? "Os exemplos não representam vendas reais." : "Consulte o estado de cada fonte de dados."}</span>
+          </Link>
           <div className="flex items-center gap-3 px-2">
             <div className="grid size-9 place-items-center rounded-full bg-white/9 text-xs font-bold">
-              RG
+              {userLabel.slice(0, 2).toUpperCase()}
             </div>
             <div className="min-w-0">
               <p className="truncate text-xs font-semibold">{userLabel}</p>
-              <p className="text-[10px] text-white/35">Administrador</p>
+              <p className="text-[10px] text-white/50">{demoMode ? "Demonstração" : "Conta conectada"}</p>
             </div>
           </div>
           {!demoMode && <SignOutButton />}
@@ -139,7 +144,7 @@ export function AppShell({ children, userLabel, demoMode }: AppShellProps) {
         />
       )}
 
-      <main className="min-h-screen lg:pl-[272px]">
+      <main id="main-content" tabIndex={-1} className="min-h-screen min-w-0 lg:pl-[272px]">
         <div className="mx-auto w-full max-w-[1580px] px-4 pb-12 pt-20 sm:px-7 lg:px-10 lg:pt-9">
           {children}
         </div>

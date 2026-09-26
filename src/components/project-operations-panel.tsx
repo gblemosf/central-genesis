@@ -1,5 +1,4 @@
 "use client";
-import { HotmartHistoryPanel } from "@/components/hotmart-history-panel";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Download, LoaderCircle, RefreshCw, Search } from "lucide-react";
@@ -195,6 +194,7 @@ export function ProjectOperationsPanel({
 }) {
   const period = useMemo(() => ({ start: filter.start, end: filter.end }), [filter.start, filter.end]);
   const [query, setQuery] = useState("");
+  const [columns, setColumns] = useState<number[]>([0, 2, 3, 4, 9, 10, 12]);
   const [status, setStatus] = useState("");
   const [currency, setCurrency] = useState("");
   const [loadedData, setData] = useState<ProjectOperations | null>(null);
@@ -458,7 +458,6 @@ export function ProjectOperationsPanel({
   }
   return (
     <section className="panel space-y-6 rounded-[24px] p-5 sm:p-7">
-      {view === "sales" && !demoMode && <HotmartHistoryPanel projectId={projectId} />}
       {data?.sales.some(sale=>["reversed","partial_refund"].includes(sale.status)) && <p className="rounded-xl bg-amber-50 p-3 text-sm">A Hotmart informou estornos no histórico. Essas compras estão separadas das receitas aprovadas. A data do estorno e o valor de reembolsos parciais dependem dos eventos da plataforma; totais líquidos com reembolso parcial ficam como não informados.</p>}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
@@ -486,7 +485,7 @@ export function ProjectOperationsPanel({
             onClick={exportRows}
             disabled={loading || !allRows.length || Boolean(error)}
           >
-            <Download size={14} /> Exportar CSV
+            <Download size={14} /> Exportar CSV completo
           </button>
         </div>
       </div>
@@ -620,13 +619,21 @@ export function ProjectOperationsPanel({
                 `${summary.unknownFinancial} registro(s) sem detalhamento suficiente: o valor ausente aparece como “Não informado”.`}
             </p>
           )}
+          {view === "sales" && <details className="rounded-xl border border-[var(--line)] p-4">
+            <summary className="text-xs font-bold">Colunas da tabela · {columns.length} de {salesHeaders.length}</summary>
+            <p className="mt-3 text-xs text-[var(--muted)]">O CSV sempre inclui todas as colunas, independentemente desta seleção.</p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{salesHeaders.map((label, index) => <label key={label} className="flex items-center gap-2 text-xs">
+              <input type="checkbox" checked={columns.includes(index)} disabled={columns.length === 1 && columns.includes(index)} onChange={(event) => setColumns(event.target.checked ? [...columns, index] : columns.filter((value) => value !== index))} />{label}
+            </label>)}</div>
+            <button type="button" className="mt-4 text-xs font-bold underline" onClick={() => setColumns(salesHeaders.map((_, index) => index))}>Exibir todas</button>
+          </details>}
           <ProjectGrid
-            headers={headers}
+            headers={view === "sales" ? headers.filter((_, index) => columns.includes(index)) : headers}
             rows={allRows.slice(
               (currentPage - 1) * pageSize,
               currentPage * pageSize,
-            )}
-            empty="Nenhum registro neste filtro. Confira o período e o vínculo dos produtos na aba Produtos."
+            ).map((row) => view === "sales" ? { ...row, cells: row.cells.filter((_, index) => columns.includes(index)) } : row)}
+            empty="Nenhum registro neste filtro. Confira o período e o vínculo dos produtos em Fontes e ajustes → Produtos e funil."
           />
           <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-[var(--muted)]">
             <span>

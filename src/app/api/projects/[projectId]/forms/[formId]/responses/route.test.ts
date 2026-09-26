@@ -52,6 +52,8 @@ function database(formFound = true) {
         return builder;
       },
       is: () => builder,
+      gte: (column: string, value: unknown) => { mocks.filters.push([table, ">=", column, value]); return builder; },
+      lt: (column: string, value: unknown) => { mocks.filters.push([table, "<", column, value]); return builder; },
       in: () => builder,
       order: () => builder,
       maybeSingle: async () => ({
@@ -79,6 +81,18 @@ beforeEach(() => {
 });
 
 describe("form responses endpoint", () => {
+  it("filters before pagination, including the last day in Brasilia time", async () => {
+    database();
+    const response = await GET(new Request("https://example.invalid?start=2026-09-01&end=2026-09-13"), route);
+    expect(response.status).toBe(200);
+    expect(mocks.filters).toContainEqual(["google_form_responses", ">=", "last_submitted_at", "2026-09-01T00:00:00-03:00"]);
+    expect(mocks.filters).toContainEqual(["google_form_responses", "<", "last_submitted_at", "2026-09-14T00:00:00-03:00"]);
+  });
+  it.each(["start=2026-09-01", "start=2026-09-13&end=2026-09-01", "start=2025-01-01&end=2026-09-01", "start=2026-02-30&end=2026-03-01"])("rejects invalid filter %s before reading rows", async (query) => {
+    database();
+    expect((await GET(new Request(`https://example.invalid?${query}`), route)).status).toBe(400);
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
   it("loads all 2,000 cells and keeps duplicate and removed question columns", async () => {
     database();
     const response = await GET(

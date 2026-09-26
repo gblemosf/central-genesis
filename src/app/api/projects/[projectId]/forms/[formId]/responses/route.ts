@@ -8,6 +8,8 @@ import {
 import { readAllRows } from "@/lib/project-operations-data";
 import { record, text } from "@/lib/sales-attribution";
 import type { FormTableData } from "@/lib/form-table";
+import { validAnalysisPeriod } from "@/lib/analysis-filters";
+import { subtractCalendarDays } from "@/lib/dates";
 
 export async function GET(
   request: Request,
@@ -19,6 +21,11 @@ export async function GET(
     z.uuid().parse(formId);
     const context = await requireAdmin();
     await requireActiveProject(context, projectId);
+    const params = new URL(request.url).searchParams;
+    const start = params.get("start"), end = params.get("end");
+    if ((start !== null || end !== null) && (!start || !end || !validAnalysisPeriod(start, end))) {
+      throw new ApiError("Escolha um período válido de até 366 dias.", 400);
+    }
     const page = z.coerce
       .number()
       .int()
@@ -45,6 +52,15 @@ export async function GET(
       throw new ApiError("Não foi possível consultar o formulário.", 503);
     if (!form.data)
       throw new ApiError("Formulário não encontrado neste projeto.", 404);
+    let responsesQuery = context.supabase
+      .from("google_form_responses")
+      .select("id,last_submitted_at,respondent_email,contact_id,match_status", { count: "exact" })
+      .eq("organization_id", context.organizationId)
+      .eq("project_id", projectId)
+      .eq("google_form_id", formId);
+    if (start && end) responsesQuery = responsesQuery
+      .gte("last_submitted_at", `${start}T00:00:00-03:00`)
+      .lt("last_submitted_at", `${subtractCalendarDays(end, -1)}T00:00:00-03:00`);
     const [questions, responses] = await Promise.all([
       readAllRows((from, to) =>
         scoped(
@@ -55,15 +71,7 @@ export async function GET(
           .order("id")
           .range(from, to),
       ),
-      context.supabase
-        .from("google_form_responses")
-        .select(
-          "id,last_submitted_at,respondent_email,contact_id,match_status",
-          { count: "exact" },
-        )
-        .eq("organization_id", context.organizationId)
-        .eq("project_id", projectId)
-        .eq("google_form_id", formId)
+      responsesQuery
         .order("last_submitted_at", { ascending: false })
         .order("id")
         .range((page - 1) * pageSize, page * pageSize - 1),

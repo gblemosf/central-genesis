@@ -10,8 +10,9 @@ export interface OverviewDailyPoint {
 export function buildOverviewDailySeries(
   rows: DailyMetric[],
   reportingDate: string,
+  startDate?: string,
 ): OverviewDailyPoint[] {
-  const monthStart = `${reportingDate.slice(0, 7)}-01`;
+  const monthStart = startDate ?? `${reportingDate.slice(0, 7)}-01`;
   const dates = new Map<string, OverviewDailyPoint>();
   const cursor = new Date(`${monthStart}T00:00:00Z`);
   const end = new Date(`${reportingDate}T00:00:00Z`);

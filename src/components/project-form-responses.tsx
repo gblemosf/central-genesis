@@ -14,9 +14,11 @@ import { ProjectLinkedSheet } from "@/components/project-linked-sheet";
 export function ProjectFormResponses({
   projectId,
   forms,
+  period,
 }: {
   projectId: string;
   forms: ProjectGoogleForm[];
+  period?: { start: string; end: string };
 }) {
   const [selected, setSelected] = useState("");
   const formId = selected || forms[0]?.id || "";
@@ -28,6 +30,7 @@ export function ProjectFormResponses({
   const [showArchived, setShowArchived] = useState(true),
     [query, setQuery] = useState("");
   const [source, setSource] = useState<"form" | "sheet">("form");
+  const start = period?.start, end = period?.end;
   useEffect(() => {
     if (!formId || source !== "form") return;
     const controller = new AbortController();
@@ -38,7 +41,7 @@ export function ProjectFormResponses({
       setLoading(true);
       try {
         const response = await fetch(
-          `/api/projects/${projectId}/forms/${formId}/responses?page=${page}`,
+          `/api/projects/${projectId}/forms/${formId}/responses?${new URLSearchParams({ page: String(page), ...(start && end ? { start, end } : {}) })}`,
           { signal: controller.signal },
         );
         const body = await response.json();
@@ -65,7 +68,7 @@ export function ProjectFormResponses({
       controller.abort();
       clearInterval(timer);
     };
-  }, [projectId, formId, page, revision, source]);
+  }, [projectId, formId, page, revision, source, start, end]);
   const columns = (data?.columns ?? []).filter(
     (column) => showArchived || !column.archived,
   );
@@ -162,7 +165,8 @@ export function ProjectFormResponses({
           />
         </label>
       </div>
-      <div className="flex gap-2" aria-label="Fonte da tabela">
+      {source === "sheet" && <p className="rounded-xl bg-blue-50 p-3 text-xs">A planilha vinculada exibe o conteúdo original, sem o filtro de período. Use Respostas do formulário para consultar por data.</p>}
+      <div className="flex flex-wrap gap-2" aria-label="Fonte da tabela">
         {(
           [
             ["form", "Respostas do formulário"],

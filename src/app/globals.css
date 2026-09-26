@@ -41,6 +41,14 @@ textarea {
   color: var(--sidebar);
 }
 
+:where(button, a, summary, input, select, textarea):focus-visible {
+  outline: 3px solid var(--violet);
+  outline-offset: 3px;
+}
+
+button:not(:disabled), summary { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+
 .panel {
   border: 1px solid color-mix(in srgb, var(--line), transparent 12%);
   background: color-mix(in srgb, var(--paper), transparent 4%);

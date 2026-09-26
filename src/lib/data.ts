@@ -22,6 +22,8 @@ import {
 } from "@/lib/project-metrics";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getSupabasePublicEnv } from "@/lib/supabase/env";
+import { validAnalysisPeriod } from "@/lib/analysis-filters";
+import { readQueryPages } from "@/lib/read-query-pages";
 import { titleCase } from "@/lib/utils";
 
 interface LegacyTrafficRow {
@@ -201,7 +203,7 @@ function aggregateLegacyData(
   });
 }
 
-export async function getProjects(): Promise<AppData<ProjectSummary[]>> {
+export async function getProjects(period?: { start: string; end: string }): Promise<AppData<ProjectSummary[]>> {
   const supabase = await createSupabaseServerClient();
   if (!supabase) {
     return getSupabasePublicEnv().demoMode
@@ -212,7 +214,9 @@ export async function getProjects(): Promise<AppData<ProjectSummary[]>> {
           warning: "Supabase nao configurado para este ambiente.",
         };
   }
-  const reportingStartDate = `${dateInTimezone(new Date()).slice(0, 7)}-01`;
+  if (period && !validAnalysisPeriod(period.start, period.end)) return { data: [], source: "live", warning: "Escolha um período válido de até 366 dias." };
+  const reportingStartDate = period?.start ?? `${dateInTimezone(new Date()).slice(0, 7)}-01`;
+  const reportingEndDate = period?.end ?? dateInTimezone(new Date());
 
   const { data: normalizedProjects, error: normalizedError } = await supabase
     .from("projects")
@@ -230,16 +234,18 @@ export async function getProjects(): Promise<AppData<ProjectSummary[]>> {
   }
 
   const [legacyTraffic, legacySales, legacyProducts] = await Promise.all([
-    supabase
+    readQueryPages((from, to) => supabase
       .from("metricas_trafego")
       .select("projeto,date,invest,impressions,clicks,pageviews,checkouts")
       .gte("date", reportingStartDate)
-      .order("date", { ascending: true }),
-    supabase
+      .lte("date", reportingEndDate)
+      .order("date", { ascending: true }).order("projeto").range(from, to)),
+    readQueryPages((from, to) => supabase
       .from("metricas_vendas")
       .select("projeto,date,core,fat_liquido")
       .gte("date", reportingStartDate)
-      .order("date", { ascending: true }),
+      .lte("date", reportingEndDate)
+      .order("date", { ascending: true }).order("projeto").range(from, to)),
     supabase.from("mapeamento_produtos").select("projeto"),
   ]);
   const legacyAvailable =
@@ -263,24 +269,26 @@ export async function getProjects(): Promise<AppData<ProjectSummary[]>> {
   if (activeNormalizedProjects.length) {
     const projectIds = activeNormalizedProjects.map((project) => project.id);
     const [metrics, mappings, csvDaily] = await Promise.all([
-      supabase
+      readQueryPages((from, to) => supabase
         .from("project_daily_metrics")
         .select(
           "project_id,metric_date,investment,revenue,impressions,clicks,page_views,checkouts,core_sales",
         )
         .in("project_id", projectIds)
         .gte("metric_date", reportingStartDate)
-        .order("metric_date", { ascending: true }),
+        .lte("metric_date", reportingEndDate)
+        .order("metric_date", { ascending: true }).order("project_id").range(from, to)),
       supabase
         .from("product_mappings")
         .select("project_id")
         .in("project_id", projectIds)
         .is("effective_to", null),
-      supabase
+      readQueryPages((from, to) => supabase
         .from("project_csv_daily_metrics")
         .select("project_id,metric_date,investment,impressions,clicks,page_views,checkouts,core_sales,order_bump_1_sales,order_bump_2_sales,order_bump_3_sales")
         .in("project_id", projectIds)
-        .gte("metric_date", reportingStartDate),
+        .gte("metric_date", reportingStartDate).lte("metric_date", reportingEndDate)
+        .order("metric_date").order("project_id").range(from, to)),
     ]);
 
     if (metrics.error || mappings.error || csvDaily.error) {

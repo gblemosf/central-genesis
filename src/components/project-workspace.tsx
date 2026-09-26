@@ -14,11 +14,15 @@ import {
   RotateCcw,
   Save,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
+import { ProjectNavigation } from "@/components/project-navigation";
+import { ProjectSummary as SummaryPanel } from "@/components/project-summary";
+import { HotmartHistoryPanel } from "@/components/hotmart-history-panel";
+import { metricViews, readWorkspaceLocation, workspaceQuery, type WorkspaceView, type MetricView } from "@/lib/workspace-navigation";
 import { ProjectMetricsPanel } from "@/components/project-metrics-panel";
 import { AnalysisFilters } from "@/components/analysis-filters";
-import { filterProductMetrics, presetPeriod, type AnalysisFilter } from "@/lib/analysis-filters";
+import { filterProductMetrics, type AnalysisFilter } from "@/lib/analysis-filters";
 import { dateInTimezone } from "@/lib/dates";
 import { ProjectOperationsPanel, type OperationView } from "@/components/project-operations-panel";
 import { ProjectFormResponses } from "@/components/project-form-responses";
@@ -31,9 +35,8 @@ import type {
   ProjectProduct,
   ProjectSummary,
 } from "@/lib/domain";
-import { calculatePerformance } from "@/lib/metrics";
 import { getProjectReadiness } from "@/lib/project-readiness";
-import { formatCurrency, formatNumber, formatPercent } from "@/lib/utils";
+import { formatNumber } from "@/lib/utils";
 
 const productSets: Record<string, { name: string; stage: string; price: number }[]> = {
   colorista: [
@@ -95,15 +98,23 @@ export function ProjectWorkspace({
   googleOAuthConfigured: boolean;
 }) {
   const router = useRouter();
-  const [analysisFilter, setAnalysisFilter] = useState<AnalysisFilter>(() => ({
-    ...presetPeriod("30", dateInTimezone(new Date())), productIds: null,
-  }));
+  const searchParams = useSearchParams();
+  const { tab, filter: analysisFilter } = readWorkspaceLocation(new URLSearchParams(searchParams.toString()), dateInTimezone(new Date()));
+  function setTab(view: WorkspaceView) {
+    window.history.pushState(null, "", `?${workspaceQuery(new URLSearchParams(searchParams.toString()), view, analysisFilter)}`);
+  }
+  function setAnalysisFilter(filter: AnalysisFilter) {
+    window.history.replaceState(null, "", `?${workspaceQuery(new URLSearchParams(searchParams.toString()), tab, filter)}`);
+  }
+  const metricView = metricViews[tab as keyof typeof metricViews];
+  function setMetricView(view: MetricView) {
+    const target = Object.entries(metricViews).find(([, value]) => value === view)?.[0];
+    if (target) setTab(target as WorkspaceView);
+  }
   const [, startTransition] = useTransition();
-  const [tab, setTab] = useState<
-    "overview" | "metrics" | "forms" | "products" | "settings" | OperationView
-  >("overview");
   const [overviewData, setOverviewData] = useState<ProjectAnalytics | null>(null);
   const [overviewError, setOverviewError] = useState("");
+  const [overviewRevision, setOverviewRevision] = useState(0);
   useEffect(() => {
     if (tab !== "overview" || demoMode || project.legacy) return;
     const controller = new AbortController();
@@ -119,7 +130,7 @@ export function ProjectWorkspace({
     }
     void load();
     return () => controller.abort();
-  }, [analysisFilter.start, analysisFilter.end, tab, demoMode, project.id, project.legacy]);
+  }, [analysisFilter.start, analysisFilter.end, tab, demoMode, project.id, project.legacy, overviewRevision]);
   const demoProducts = productSets[project.id] ?? [
     { name: "Produto principal", stage: "Core", price: 0 },
   ];
@@ -214,7 +225,6 @@ export function ProjectWorkspace({
   const overviewRows = filterProductMetrics(overviewReady ? (overviewData?.dailyMetrics ?? analytics.dailyMetrics).filter(
     (row) => row.date >= analysisFilter.start && row.date <= analysisFilter.end,
   ) : [], analysisFilter.productIds);
-  const totals = calculatePerformance(overviewRows);
   const readiness = getProjectReadiness(
     project,
     {
@@ -225,39 +235,6 @@ export function ProjectWorkspace({
     },
     analytics,
   );
-  const hasProjectData = overviewRows.some(
-    (metric) =>
-      metric.investment !== 0 ||
-      metric.revenue !== 0 ||
-      metric.impressions !== 0 ||
-      metric.clicks !== 0 ||
-      metric.pageViews !== 0 ||
-      metric.checkouts !== 0 ||
-      metric.coreSales !== 0,
-  );
-  const hasTrafficData = overviewRows.some(
-    (metric) =>
-      metric.investment !== 0 ||
-      metric.impressions !== 0 ||
-      metric.clicks !== 0 ||
-      metric.pageViews !== 0 ||
-      metric.checkouts !== 0,
-  );
-  const hasSalesData = overviewRows.some(
-    (metric) => metric.revenue !== 0 || metric.coreSales !== 0,
-  );
-  const overviewSources = overviewData?.dataSources ?? analytics.dataSources;
-  const trafficSourceSummary = overviewSources.csvDailyRows > 0
-    ? `CSV diario (${overviewSources.csvDailyRows} linhas)`
-    : overviewSources.metaTrafficRows > 0
-      ? `Meta (${overviewSources.metaTrafficRows} dias)`
-      : "Sem fonte";
-  const salesSourceSummary = overviewSources.csvDailyRows > 0
-    ? `CSV diario (${overviewSources.csvDailyRows} linhas)`
-    : overviewSources.webhookSalesEvents > 0
-      ? `API / webhook (${overviewSources.webhookSalesEvents} eventos)`
-      : "Sem fonte";
-
   async function saveProducts() {
     setSaveStatus("saving");
     if (!demoMode) {
@@ -723,7 +700,12 @@ export function ProjectWorkspace({
           ? `${body?.processed ?? 0} metrica(s) sincronizada(s).`
           : body?.error ?? "Nao foi possivel sincronizar a Meta.",
       );
-      if (response.ok) startTransition(() => router.refresh());
+      if (response.ok) {
+        setOverviewData(null);
+        setOverviewError("");
+        setOverviewRevision((value) => value + 1);
+        startTransition(() => router.refresh());
+      }
     } catch {
       setOperation("idle");
       setOperationMessage("Falha de rede ao sincronizar a Meta.");
@@ -794,55 +776,32 @@ export function ProjectWorkspace({
             <p className="mt-1 text-xs text-[var(--muted)]">{project.expertName}</p>
           </div>
         </div>
-        <div className="flex max-w-full gap-1 overflow-x-auto rounded-xl border border-[var(--line)] bg-white/45 p-1">
-          {[
-            ["overview", "Resumo"],
-            ["sales", "Vendas"],
-            ["origins", "Origens"],
-            ["recovery", "Recuperação"],
-            ["contacts", "Contatos"],
-            ["forms", "Formulários"],
-            ["results", "Resultados"],
-            ["metrics", "Métricas e custos"],
-            ["products", "Produtos"],
-            ["settings", "Configuracoes"],
-          ].map(([key, label]) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setTab(key as typeof tab)}
-              className={`whitespace-nowrap rounded-lg px-3 py-2 text-[11px] font-bold ${
-                tab === key ? "bg-[var(--ink)] text-white" : "text-[var(--muted)]"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
       </header>
-      {["overview", "sales", "origins", "contacts", "recovery", "results", "metrics"].includes(tab) && (
+      <ProjectNavigation value={tab} onChange={setTab} />
+      {["overview", "sales", "origins", "contacts", "recovery", "results", "metrics", "financial", "planning", "forms"].includes(tab) && (
         <AnalysisFilters value={analysisFilter} onChange={setAnalysisFilter}
-          products={products.filter((product) => product.mappedProjectId === project.id && !product.archivedAt)} />
+          products={products.filter((product) => product.mappedProjectId === project.id && !product.archivedAt)} hideProducts={tab === "forms"} />
       )}
       {["sales", "origins", "contacts", "recovery", "results"].includes(tab) && (
         <ProjectOperationsPanel key={tab} projectId={project.id} view={tab as OperationView} demoMode={demoMode || project.legacy}
           filter={analysisFilter} products={products} />
       )}
+      {tab === "history" && (!demoMode && !project.legacy ? <HotmartHistoryPanel projectId={project.id} /> : <p className="panel rounded-2xl p-6 text-sm">A importação de histórico fica disponível nos projetos conectados à Hotmart.</p>)}
       {initialCatalog.warning && (
         <p className="rounded-xl bg-amber-50 px-4 py-3 text-xs font-medium text-amber-950">
           {initialCatalog.warning}
         </p>
       )}
 
-      {!project.legacy && (
+      {!project.legacy && tab === "settings" && (
         <section className="panel rounded-[24px] p-5 sm:p-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="eyebrow">Prontidao operacional</p>
               <h2 className="mt-2 text-xl font-black tracking-[-0.035em]">
                 {readiness.ready
-                  ? "Projeto pronto para acompanhamento"
-                  : "Complete o fluxo antes de confiar no dashboard"}
+                  ? "Fontes com registros disponíveis"
+                  : "Conexões e dados do projeto"}
               </h2>
             </div>
             <span
@@ -860,7 +819,7 @@ export function ProjectWorkspace({
               <button
                 key={item.key}
                 type="button"
-                onClick={() => setTab(item.target)}
+                onClick={() => setTab(item.target === "overview" ? "metrics" : item.target === "metrics" ? "imports" : item.target)}
                 className={`rounded-2xl border p-4 text-left transition hover:-translate-y-0.5 ${
                   item.ready
                     ? "border-emerald-200 bg-emerald-50/70"
@@ -886,135 +845,17 @@ export function ProjectWorkspace({
         </section>
       )}
 
-      {tab === "overview" && (
-        !overviewReady ? <p role="status" className="panel rounded-xl p-5 text-sm">{overviewError || "Carregando o período selecionado…"}</p> :
-        <>
-          {analysisFilter.productIds !== null && <p className="rounded-xl bg-blue-50 p-4 text-xs leading-5">Vendas e receitas dos produtos selecionados. Tráfego e investimento são da conta inteira; CPA, ROAS e saldo por produto dependem da divisão dos gastos.</p>}
-          {!hasProjectData && (
-            <section className="rounded-[24px] border border-amber-200 bg-amber-50 p-6 text-amber-950">
-              <p className="eyebrow text-amber-800">Nenhum registro nesta seleção</p>
-              <h2 className="mt-2 text-2xl font-black tracking-[-0.04em]">
-                Selecione outro período ou confira as fontes
-              </h2>
-              <div className="mt-6 grid gap-3 lg:grid-cols-3">
-                {[
-                  ["1", "Abastecer dados", "Importe os CSVs de trafego e vendas.", "metrics"],
-                  ["2", "Mapear produtos", "Associe produtos as etapas do funil.", "products"],
-                  ["3", "Revisar operacao", "Confirme metas, status e conta Meta.", "settings"],
-                ].map(([number, title, description, target]) => (
-                  <button
-                    key={number}
-                    type="button"
-                    onClick={() => setTab(target as typeof tab)}
-                    className="rounded-2xl border border-amber-200 bg-white/55 p-4 text-left"
-                  >
-                    <span className="grid size-6 place-items-center rounded-full bg-amber-200 text-[10px] font-black">
-                      {number}
-                    </span>
-                    <span className="mt-3 block text-xs font-black">{title}</span>
-                    <span className="mt-1 block text-[10px] leading-4 text-amber-900/70">
-                      {description}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </section>
-          )}
-          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {[
-              ["Faturamento observado", hasProjectData ? formatCurrency(totals.revenue) : "Sem dados"],
-              ["Investimento em midia", hasProjectData ? formatCurrency(totals.investment) : "Sem dados"],
-              ["Saldo apos midia", hasProjectData && hasTrafficData && analysisFilter.productIds === null ? formatCurrency(totals.profit) : "Sem dados"],
-              ["ROAS", hasProjectData && totals.investment > 0 && analysisFilter.productIds === null ? `${totals.roas.toFixed(2)}x` : "Sem dados"],
-            ].map(([label, value]) => (
-              <article key={label} className="panel rounded-[20px] p-5">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted)]">
-                  {label}
-                </p>
-                <p className="mt-4 text-2xl font-black tracking-[-0.04em]">{value}</p>
-              </article>
-            ))}
-          </section>
-          <section className="grid gap-4 xl:grid-cols-[1.3fr_1fr]">
-            <article className="panel rounded-[24px] p-6">
-              <p className="eyebrow">Indicadores de funil</p>
-              <p className="mt-2 text-[10px] leading-4 text-[var(--muted)]">
-                Período e produtos selecionados acima. Custos operacionais registrados aparecem em Métricas &gt; Financeiro.
-              </p>
-              <div className="mt-6 grid gap-5 sm:grid-cols-2">
-                {[
-                  ["CTR", hasTrafficData ? formatPercent(totals.ctr) : "Sem dados"],
-                  ["Connect rate", hasTrafficData ? formatPercent(totals.connectRate) : "Sem dados"],
-                  ["Pagina para checkout", hasTrafficData ? formatPercent(totals.checkoutRate) : "Sem dados"],
-                  ["Vendas core", hasSalesData ? formatNumber(totals.coreSales) : "Sem dados"],
-                  ["CPA", hasTrafficData && hasSalesData && analysisFilter.productIds === null ? formatCurrency(totals.cpa) : "Sem dados"],
-                  ["AOV", hasSalesData ? formatCurrency(totals.aov) : "Sem dados"],
-                ].map(([label, value]) => (
-                  <div key={label} className="border-b border-[var(--line)] pb-3">
-                    <p className="text-[10px] uppercase tracking-wider text-[var(--muted)]">
-                      {label}
-                    </p>
-                    <p className="mt-1 text-lg font-black">{value}</p>
-                  </div>
-                ))}
-              </div>
-            </article>
-            <article className="rounded-[24px] bg-[var(--sidebar)] p-6 text-white">
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/35">
-                Estado operacional
-              </p>
-              <h2 className="mt-3 text-2xl font-black tracking-[-0.04em]">
-                {hasProjectData ? "Fontes com dados" : "Aguardando abastecimento"}
-              </h2>
-               <div className="mt-7 space-y-3 text-xs">
-                <div className="flex justify-between border-b border-white/8 pb-3">
-                  <span className="text-white/45">Trafego</span>
-                  <span className="font-bold">{trafficSourceSummary}</span>
-                </div>
-                <div className="flex justify-between border-b border-white/8 pb-3">
-                  <span className="text-white/45">Vendas</span>
-                  <span className="font-bold">{salesSourceSummary}</span>
-                </div>
-                <div className="flex justify-between border-b border-white/8 pb-3">
-                  <span className="text-white/45">Produtos mapeados</span>
-                  <span className="font-bold">{project.products}</span>
-                </div>
-                <div className="flex justify-between pb-3">
-                  <span className="text-white/45">Ultimo dia com dados</span>
-                  <span className="font-bold">{overviewRows.filter((row) => row.revenue || row.investment || row.coreSales || row.impressions).at(-1)?.date ?? "Sem dados no período"}</span>
-                </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={syncMeta}
-                  disabled={operation !== "idle" || (!demoMode && !metaAccountId)}
-                  className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-[10px] font-bold text-[var(--sidebar)] disabled:opacity-35"
-                >
-                  {operation === "syncing" ? (
-                    <LoaderCircle size={14} className="animate-spin" />
-                  ) : (
-                    <RefreshCw size={14} />
-                  )}
-                  Sincronizar Meta
-                </button>
-                {!demoMode && metaAccountId && <p className="mt-3 text-[10px] leading-4 text-white/60">Atualização automática periódica nos projetos ativos. Use o botão para consultar agora o período selecionado.</p>}
-                {!demoMode && !metaAccountId && (
-                  <p className="mt-3 text-[10px] leading-4 text-white/45">
-                    Vincule uma conta em Configuracoes ou use os CSVs em Metricas &gt;
-                    Abastecimento.
-                  </p>
-                )}
-              </article>
-            </section>
-            {operationMessage && (
-              <p className="rounded-xl bg-blue-50 px-4 py-3 text-xs font-medium text-blue-950">
-                {operationMessage}
-              </p>
-            )}
-          </>
-      )}
+      {tab === "overview" && <SummaryPanel project={project} analytics={overviewData ?? analytics}
+        rows={overviewRows} ready={Boolean(overviewReady)} error={overviewError} filter={analysisFilter}
+        products={products} catalog={{ ...initialCatalog, products, stages, linkedMetaAccountId: metaAccountId || null }}
+        forms={initialForms} demoMode={demoMode} onNavigate={setTab} onSyncMeta={syncMeta} syncing={operation !== "idle"} />}
+      {operationMessage && <p role="status" className="rounded-xl bg-blue-50 p-4 text-xs">{operationMessage}</p>}
+      {tab === "forms" && <div className="space-y-4">
+        <p className="text-xs leading-5 text-[var(--muted)]">Respostas filtradas por data de envio. Formulários pertencem ao projeto e não são filtrados por produto. Para adicionar fontes, acesse <button type="button" className="font-bold underline" onClick={() => setTab("forms-setup")}>Conectar formulários</button>.</p>
+        <ProjectFormResponses key={`${analysisFilter.start}:${analysisFilter.end}`} projectId={project.id} forms={initialForms.forms} period={analysisFilter} />
+      </div>}
 
-      {tab === "forms" && (
+      {tab === "forms-setup" && (
         <div className="space-y-5">
           {!demoMode && !googleOAuthConfigured && (
             <div className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-medium text-amber-950 sm:flex-row sm:items-center sm:justify-between">
@@ -1074,6 +915,7 @@ export function ProjectWorkspace({
             <div className="grid gap-3 rounded-2xl bg-black/[0.035] p-4 lg:grid-cols-[220px_1fr_auto]">
               <select
                 className="field"
+                aria-label="Conta Google do formulário"
                 value={googleConnectionId}
                 onChange={(event) => setGoogleConnectionId(event.target.value)}
                 disabled={!googleConnections.length || demoMode}
@@ -1087,6 +929,7 @@ export function ProjectWorkspace({
               </select>
               <input
                 className="field"
+                aria-label="URL do formulário Google"
                 value={googleFormUrl}
                 onChange={(event) => setGoogleFormUrl(event.target.value)}
                 placeholder="https://docs.google.com/forms/d/..."
@@ -1111,7 +954,6 @@ export function ProjectWorkspace({
             </div>
           </section>
 
-          <ProjectFormResponses projectId={project.id} forms={initialForms.forms} />
           <section className="grid gap-4 xl:grid-cols-2">
             {initialForms.forms.map((form) => (
               <article key={form.id} className="panel rounded-[24px] p-6">
@@ -1642,8 +1484,10 @@ export function ProjectWorkspace({
         )
       )}
 
-      {tab === "metrics" && (
+      {metricView && (
         <ProjectMetricsPanel
+          view={metricView}
+          onViewChange={setMetricView}
           filter={analysisFilter}
           projectId={project.id}
           analytics={analytics}

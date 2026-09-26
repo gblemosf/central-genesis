@@ -11,7 +11,9 @@ import {
   ShoppingBag,
   TrendingUp,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { AnalysisFilters } from "@/components/analysis-filters";
 import {
   Area,
   AreaChart,
@@ -44,6 +46,7 @@ interface OverviewDashboardProps {
   connections: IntegrationConnection[];
   source: "live" | "demo";
   reportingDate: string;
+  period: { start: string; end: string };
   warning?: string;
 }
 
@@ -60,63 +63,72 @@ export function OverviewDashboard({
   source,
   reportingDate,
   warning,
+  period,
 }: OverviewDashboardProps) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
   const [selectedProject, setSelectedProject] = useState("all");
   const activeProjects = projects.filter((project) => project.status === "active");
   const visibleProjects =
     selectedProject === "all"
       ? activeProjects
       : activeProjects.filter((project) => project.id === selectedProject);
-  const rows = visibleProjects.flatMap((project) => project.dailyMetrics);
+  const rows = visibleProjects.flatMap((project) => project.dailyMetrics).filter((row) => row.date >= period.start && row.date <= period.end);
   const totals = calculatePerformance(rows);
-  const byDate = buildOverviewDailySeries(rows, reportingDate);
+  const byDate = buildOverviewDailySeries(rows, reportingDate, period.start);
+  const hasSales = rows.some((row) => row.revenue || row.coreSales);
+  const hasTraffic = rows.some((row) => row.investment || row.impressions || row.clicks);
+  const complete = visibleProjects.length > 0 && visibleProjects.every((project) => {
+    const selectedRows = project.dailyMetrics.filter((row) => row.date >= period.start && row.date <= period.end);
+    return selectedRows.some((row) => row.revenue || row.coreSales) && selectedRows.some((row) => row.investment || row.impressions || row.clicks);
+  });
 
   const kpis = [
     {
-      label: "Faturamento liquido",
-      value: formatCurrency(totals.revenue),
-      hint: `${formatNumber(totals.coreSales)} vendas core`,
+      label: "Receita registrada",
+      value: hasSales ? formatCurrency(totals.revenue) : "Sem dados",
+      hint: hasSales ? `${formatNumber(totals.coreSales)} vendas do produto de entrada` : "Confira as fontes dos projetos",
       icon: CircleDollarSign,
       color: "var(--mint)",
     },
     {
-      label: "Investimento Meta",
-      value: formatCurrency(totals.investment),
-      hint: `${formatPercent(totals.ctr)} CTR consolidado`,
+      label: "Investimento em mídia",
+      value: hasTraffic ? formatCurrency(totals.investment) : "Sem dados",
+      hint: hasTraffic ? `${formatPercent(totals.ctr)} CTR consolidado` : "Nenhum tráfego registrado no período",
       icon: Radar,
       color: "var(--coral)",
     },
     {
-      label: "Resultado",
-      value: formatCurrency(totals.profit),
-      hint: `${formatPercent(totals.margin)} de margem`,
+      label: "Saldo após mídia",
+      value: complete ? formatCurrency(totals.profit) : "Indisponível",
+      hint: complete ? "Receita registrada menos mídia; sem custos externos" : "Faltam vendas ou tráfego em algum projeto",
       icon: BadgeDollarSign,
       color: totals.profit >= 0 ? "var(--signal)" : "var(--coral)",
     },
     {
-      label: "ROAS real",
-      value: `${totals.roas.toFixed(2)}x`,
-      hint: `CPA medio ${formatCurrency(totals.cpa)}`,
+      label: "ROAS registrado",
+      value: complete && totals.investment > 0 ? `${totals.roas.toFixed(2)}x` : "Indisponível",
+      hint: complete && totals.coreSales > 0 ? `CPA de entrada ${formatCurrency(totals.cpa)}` : "Depende de receita e investimento comparáveis",
       icon: TrendingUp,
       color: "var(--violet)",
     },
   ];
 
   return (
-    <div className="space-y-7">
+    <div className="space-y-6" aria-busy={pending}>
       <header className="rise-in flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
         <div>
-          <p className="eyebrow mb-3">Sala de operacoes</p>
-          <h1 className="max-w-3xl text-4xl font-black tracking-[-0.055em] sm:text-5xl">
-            Performance sem caixas-pretas.
+          <p className="eyebrow mb-3">Central Gênesis</p>
+          <h1 className="max-w-3xl text-3xl font-black tracking-[-0.04em] sm:text-4xl">
+            Visão geral dos projetos
           </h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-[var(--muted)]">
-            Trafego, vendas e configuracoes reunidos em uma visao operacional da
-            Genesis.
+            Compare os resultados e abra um projeto para analisar produtos, vendas e origens.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <select
+            aria-label="Projeto na visão geral"
             value={selectedProject}
             onChange={(event) => setSelectedProject(event.target.value)}
             className="field min-w-48 bg-[var(--paper)] text-sm font-semibold"
@@ -136,6 +148,10 @@ export function OverviewDashboard({
           </Link>
         </div>
       </header>
+
+      <AnalysisFilters value={{ ...period, productIds: null }} products={[]} hideProducts onChange={(value) => startTransition(() => router.replace(`/overview?${new URLSearchParams({ start: value.start, end: value.end })}`, { scroll: false }))} />
+      {pending && <p role="status" className="rounded-xl bg-blue-50 p-4 text-sm">Atualizando o período. Aguarde para conferir os novos resultados.</p>}
+      <div className={pending ? "pointer-events-none space-y-6 opacity-40" : "space-y-6"}>
 
       {(source === "demo" || warning) && (
         <div className="rounded-xl border border-amber-400/30 bg-amber-100/55 px-4 py-3 text-xs font-medium text-amber-950">
@@ -174,7 +190,9 @@ export function OverviewDashboard({
         })}
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[1.55fr_.8fr]">
+      <p className="text-xs leading-5 text-[var(--muted)]">A receita registrada usa a base dos dados importados e das integrações. Dentro de cada projeto, o Resumo separa bruto, líquido após taxas e repasse ao produtor. Valores indisponíveis não são substituídos por zero.</p>
+
+      {(hasSales || hasTraffic) && <section className="grid gap-4 xl:grid-cols-[1.55fr_.8fr]">
         <article className="panel rounded-[24px] p-5 sm:p-6">
           <div className="mb-6 flex items-start justify-between gap-3">
             <div>
@@ -204,7 +222,7 @@ export function OverviewDashboard({
                 <CartesianGrid stroke="#dcd8cf" strokeDasharray="4 5" vertical={false} />
                 <XAxis
                   dataKey="date"
-                  tickFormatter={(value) => value.slice(8)}
+                  tickFormatter={(value) => `${value.slice(8)}/${value.slice(5, 7)}`}
                   tick={{ fontSize: 10, fill: "#69717c" }}
                   axisLine={false}
                   tickLine={false}
@@ -263,7 +281,7 @@ export function OverviewDashboard({
                 <CartesianGrid stroke="rgba(255,255,255,.07)" vertical={false} />
                 <XAxis
                   dataKey="date"
-                  tickFormatter={(value) => value.slice(8)}
+                  tickFormatter={(value) => `${value.slice(8)}/${value.slice(5, 7)}`}
                   tick={{ fontSize: 10, fill: "rgba(255,255,255,.35)" }}
                   axisLine={false}
                   tickLine={false}
@@ -288,7 +306,7 @@ export function OverviewDashboard({
             </ResponsiveContainer>
           </div>
         </article>
-      </section>
+      </section>}
 
       <section className="grid gap-4 xl:grid-cols-[1.25fr_1fr]">
         <article className="panel rounded-[24px] p-5 sm:p-6">
@@ -307,12 +325,13 @@ export function OverviewDashboard({
             </Link>
           </div>
           <div className="space-y-2">
-            {activeProjects.slice(0, 4).map((project) => {
-              const performance = calculatePerformance(project.dailyMetrics);
+            {visibleProjects.map((project) => {
+              const projectRows = project.dailyMetrics.filter((row) => row.date >= period.start && row.date <= period.end);
+              const performance = calculatePerformance(projectRows);
               return (
                 <Link
                   key={project.id}
-                  href={`/projects/${project.id}`}
+                  href={`/projects/${project.id}?${new URLSearchParams({ start: period.start, end: period.end })}`}
                   className="group flex items-center gap-3 rounded-2xl border border-transparent px-2 py-3 transition hover:border-[var(--line)] hover:bg-white/60 sm:gap-4 sm:px-3"
                 >
                   <div
@@ -328,9 +347,9 @@ export function OverviewDashboard({
                     </p>
                   </div>
                   <div className="hidden text-right sm:block">
-                    <p className="text-sm font-black">{formatCurrency(performance.revenue)}</p>
+                    <p className="text-sm font-black">{projectRows.some((row) => row.revenue || row.coreSales) ? formatCurrency(performance.revenue) : "Sem vendas no período"}</p>
                     <p className="text-[10px] text-[var(--muted)]">
-                      {performance.roas.toFixed(2)}x ROAS
+                      {performance.investment > 0 && performance.revenue !== 0 ? `${performance.roas.toFixed(2)}x ROAS` : "Confira as fontes"}
                     </p>
                   </div>
                   <ArrowUpRight
@@ -360,11 +379,12 @@ export function OverviewDashboard({
             <div>
               <p className="eyebrow">Infraestrutura</p>
               <h2 className="mt-2 text-xl font-black tracking-[-0.035em]">
-                Saude das conexoes
+                Estado das conexões
               </h2>
             </div>
             <RefreshCw size={17} className="text-[var(--muted)]" />
           </div>
+          <p className="mb-4 text-xs leading-5 text-[var(--muted)]">Conexão cadastrada não garante dados recentes. Confira a última verificação e os erros de sincronização.</p>
           <div className="space-y-3">
             {connections.map((connection) => (
               <div
@@ -384,6 +404,7 @@ export function OverviewDashboard({
                   <p className="truncate text-xs font-extrabold">{connection.name}</p>
                   <p className="text-[10px] text-[var(--muted)]">
                     {connectionOperationalSummary(connection)}
+                    {connection.lastVerifiedAt && <span className="mt-1 block">Verificada em {new Date(connection.lastVerifiedAt).toLocaleDateString("pt-BR")}</span>}
                   </p>
                 </div>
                 <span className="rounded-full bg-black/[0.045] px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider text-[var(--muted)]">
@@ -400,6 +421,7 @@ export function OverviewDashboard({
           </Link>
         </article>
       </section>
+      </div>
     </div>
   );
 }

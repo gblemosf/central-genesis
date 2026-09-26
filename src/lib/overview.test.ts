@@ -71,3 +71,10 @@ describe("connectionOperationalSummary", () => {
     ).toBe("5 conta(s) de anuncios");
   });
 });
+
+it("builds a custom period spanning months without dropping the first month", () => {
+  const base = { investment: 0, revenue: 10, coreSales: 1, impressions: 0, clicks: 0, pageViews: 0, checkouts: 0 };
+  const series = buildOverviewDailySeries([{ ...base, date: "2026-08-31" }, { ...base, date: "2026-09-01" }, { ...base, date: "2026-08-30" }], "2026-09-01", "2026-08-31");
+  expect(series.map((row) => row.date)).toEqual(["2026-08-31", "2026-09-01"]);
+  expect(series.reduce((sum, row) => sum + row.revenue, 0)).toBe(20);
+});
