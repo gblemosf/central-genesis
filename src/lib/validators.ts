@@ -83,6 +83,7 @@ const requiredCredentialFields = {
   eduzz: ["accessToken"],
   kiwify: ["clientId", "clientSecret", "accountId"],
   hubla: ["webhookToken"],
+  payt: [],
 } as const;
 
 export const credentialInputSchema = z.object({
@@ -93,7 +94,7 @@ export const credentialInputSchema = z.object({
 });
 
 export const connectionWithCredentialInputSchema = connectionInputSchema
-  .extend({ credentials: connectionCredentialFieldsSchema })
+  .extend({ credentials: connectionCredentialFieldsSchema.default({}) })
   .superRefine((input, context) => {
     for (const field of requiredCredentialFields[input.provider]) {
       if (!input.credentials[field]) {

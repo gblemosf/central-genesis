@@ -18,10 +18,11 @@ Aplicacao interna para onboarding de experts, configuracao de integracoes, mapea
 - Projetos independentes por expert
 - Assistente de criacao de projeto
 - Multiplas conexoes Meta, incluindo mais de um Business Manager
-- Credenciais write-only, armazenadas no Vault e nunca retornadas ao frontend
+- Credenciais de plataformas armazenadas no Vault; endereços protegidos de recebimento Payt disponíveis somente para administradores
 - Descoberta de contas de anuncios atribuidas ao System User
 - Sincronizacao de Meta Insights por projeto
 - Webhook Hotmart autenticado por `X-HOTMART-HOTTOK`
+- Gateway Payt com endpoint protegido, caixa de eventos, conferência e reprocessamento de pendências
 - Produtos e etapas de funil normalizados, sem colunas fixas como `ob1` ou `ob2`
 - Simulador em cascata ou com todas as conversoes partindo do Low Ticket
 - Modo demonstracao quando o Supabase ainda nao esta configurado
@@ -72,6 +73,28 @@ O projeto existente possui tabelas legadas. A migration nova cria tabelas normal
 Nunca adicione `SUPABASE_SECRET_KEY`, tokens Meta ou credenciais de plataformas ao GitHub.
 Se uma chave administrativa ja foi versionada, remove-la do arquivo nao a invalida:
 substitua-a no Supabase e atualize os ambientes que a utilizam.
+
+## Configuração Payt
+
+A integração recebe postbacks no formato PayT V1 e distribui eventos por conexão e produto. Consulte a documentação oficial de [postbacks](https://help.payt.com.br/article/155-postback) e [UTMs e src](https://help.payt.com.br/article/75-utilizando-utms-nas-campanhas-payt).
+
+Publicação, com uma CLI Supabase compatível com `config.toml` e acesso ao projeto correto:
+
+1. Confira o destino e o histórico de migrations. Aplique `20261001150616_add_payt_provider.sql` antes de `20261001150854_payt_postback_receiver.sql`. A adição do enum precisa de uma transação separada.
+2. Publique somente a Edge Function `payt-webhook`, com `verify_jwt = false`. A própria função exige o token de recebimento de 256 bits e confere sua conexão antes de armazenar eventos.
+3. Em **Integrações**, crie a conexão **Payt**. O servidor gera o token e o armazena no Vault; nenhum token global da conta Payt é necessário para o recebimento por URL.
+4. Copie o endereço protegido, cadastre-o na Payt, selecione produtos/eventos e envie **Testar URL**. O endereço contém uma credencial de entrega e deve ser usado somente nesse postback.
+5. Confira os eventos em **Integrações > Payt > Conferir eventos**. Um administrador pode baixar o JSON já sem senhas, documentos, dados de cartão e Pix.
+
+**Validação do contrato:** a documentação pública consultada não descreve os campos JSON e unidades monetárias de PayT V1. Antes da ativação financeira, confirme uma amostra real de aprovação, abandono e estorno. Configure `integration_connections.metadata.payt_payload_contract` com os caminhos e unidades verificados, seguindo `PaytContract` em `supabase/functions/payt-webhook/normalize.ts`. Esse contrato é configuração técnica do conector, não preenchimento de métricas pelo usuário.
+
+Até essa validação, o recebimento armazena os eventos com `state = awaiting_contract`, sem produzir vendas ou valores estimados. Depois da validação, **Processar pendências** lê os eventos armazenados em lotes de até 100; eventos sem vínculo de produto permanecem disponíveis para processamento após o mapeamento. Eventos futuros são processados na chegada. Mudanças de formato também ficam para revisão. Configure a identificação de testes da plataforma no contrato para mantê-los fora dos resultados.
+
+O processamento distingue bruto, taxa da plataforma, líquido após taxas e repasse informado pela Payt. Valores ausentes permanecem desconhecidos. Há uma compra e um estorno por transação, preservação de valores/UTMs já recebidos, contatos por projeto e recuperação de pagamentos com o mesmo identificador da transação. Reembolsos parciais, pedidos com vários itens e eventos de assinatura exigem confirmação do respectivo contrato e ficam fora de regras presumidas de faturamento.
+
+Uma API pública de consulta/histórico ainda não foi confirmada. O histórico anterior ao início dos postbacks exige uma carga inicial por relatório exportado, com seu formato validado.
+
+Testes de transporte/contrato: `npm test -- supabase/functions/payt-webhook`. Testes de banco com rollback: `supabase/tests/payt.test.sql`.
 
 ## Configuracao Meta
 

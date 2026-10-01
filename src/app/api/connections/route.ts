@@ -1,12 +1,16 @@
-import { apiErrorResponse, requireAdmin } from "@/lib/api-auth";
+import { ApiError, apiErrorResponse, requireAdmin } from "@/lib/api-auth";
 import { serializeProviderCredentials } from "@/lib/provider-credentials";
 import { connectionWithCredentialInputSchema } from "@/lib/validators";
+import { randomBytes } from "node:crypto";
 
 export async function POST(request: Request) {
   try {
     const context = await requireAdmin();
     const input = connectionWithCredentialInputSchema.parse(await request.json());
-    const credential = serializeProviderCredentials(input.provider, input.credentials);
+    const credentials = input.provider === "payt" && !input.credentials.webhookToken
+      ? { ...input.credentials, webhookToken: randomBytes(32).toString("hex") }
+      : input.credentials;
+    const credential = serializeProviderCredentials(input.provider, credentials);
     const { data, error: createError } = await context.supabase.rpc(
       "create_connection_with_secret",
       {
@@ -19,6 +23,9 @@ export async function POST(request: Request) {
         p_system_user_id: input.systemUserId ?? null,
       },
     );
+    if (createError && input.provider === "payt" && createError.code === "22P02") {
+      throw new ApiError("Publique as migrations Payt no Supabase antes de criar esta conexão.", 503);
+    }
     if (createError) throw createError;
     if (!data || typeof data !== "object" || Array.isArray(data)) {
       throw new Error("Invalid connection response");

@@ -13,6 +13,10 @@ verify_jwt = false
 [functions.hotmart-webhook]
 verify_jwt = false
 
+# Authenticated by a per-connection delivery token in the function body.
+[functions.payt-webhook]
+verify_jwt = false
+
 [api]
 enabled = true
 # Port to use for the API URL.

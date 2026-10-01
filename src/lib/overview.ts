@@ -41,7 +41,7 @@ export function buildOverviewDailySeries(
 }
 
 export function connectionOperationalSummary(connection: IntegrationConnection) {
-  if (connection.provider === "hubla") {
+  if (connection.provider === "hubla" || connection.provider === "payt") {
     if (connection.status !== "connected") {
       return connection.productCount > 0
         ? `${connection.productCount} produto(s) · webhook pendente`

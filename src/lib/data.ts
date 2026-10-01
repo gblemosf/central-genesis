@@ -12,7 +12,6 @@ import type {
   ProjectSummary,
   SalesConnectionOption,
 } from "@/lib/domain";
-import { salesProviders } from "@/lib/domain";
 import { demoConnections, demoProjects } from "@/lib/demo-data";
 import { dateInTimezone } from "@/lib/dates";
 import { observedSaleFromEvent } from "@/lib/metric-references";
@@ -511,7 +510,8 @@ export async function getProjectCatalog(projectId: string): Promise<ProjectCatal
       .from("integration_connections")
       .select("id,name,provider")
       .eq("organization_id", project.organization_id)
-      .in("provider", [...salesProviders])
+      .neq("provider", "meta")
+      .neq("provider", "google_forms")
       .is("revoked_at", null)
       .order("name"),
   ]);
@@ -1346,14 +1346,17 @@ export async function getSalesConnectionsForOnboarding(): Promise<SalesConnectio
 
   const { data: connections, error: connectionError } = await supabase
     .from("integration_connections")
-    .select("id,name,provider")
-    .in("provider", [...salesProviders])
-    .eq("status", "connected")
+    .select("id,name,provider,status")
+    .neq("provider", "meta")
+    .neq("provider", "google_forms")
+    .in("status", ["connected", "attention"])
     .is("revoked_at", null)
     .order("created_at");
   if (connectionError || !connections?.length) return [];
 
-  const connectionIds = connections.map((connection) => connection.id);
+  const usableConnections = connections.filter(connection => connection.status === "connected" || connection.provider === "payt");
+  const connectionIds = usableConnections.map((connection) => connection.id);
+  if (!connectionIds.length) return [];
   const [products, mappings] = await Promise.all([
     supabase
       .from("products")
@@ -1367,7 +1370,7 @@ export async function getSalesConnectionsForOnboarding(): Promise<SalesConnectio
   if (products.error || mappings.error) return [];
   const mappedProductIds = new Set((mappings.data ?? []).map((mapping) => mapping.product_id));
 
-  return connections.map((connection) => ({
+  return usableConnections.map((connection) => ({
     id: connection.id,
     name: connection.name,
     provider: connection.provider,

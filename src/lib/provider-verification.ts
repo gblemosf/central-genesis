@@ -181,10 +181,10 @@ export async function verifyProviderCredential(
       };
     }
 
-    if (!credentials.webhookToken) throw new Error("Token de webhook da Hubla ausente.");
+    if (!credentials.webhookToken) throw new Error(`Token de webhook ${provider === "payt" ? "da Payt" : "da Hubla"} ausente.`);
     return {
       ok: true,
-      accountName: "Webhook Hubla configurado",
+      accountName: `Webhook ${provider === "payt" ? "Payt" : "Hubla"} configurado`,
       mode: "webhook",
     };
   } catch (error) {

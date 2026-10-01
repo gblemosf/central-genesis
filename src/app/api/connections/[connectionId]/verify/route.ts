@@ -22,14 +22,16 @@ export async function POST(
     if (!connection) throw new ApiError("Conexao nao encontrada.", 404);
 
     const secret = await readConnectionSecret(connectionId);
-    if (connection.provider === "hubla") {
+    if (connection.provider === "hubla" || connection.provider === "payt") {
       const metadata =
         connection.metadata &&
         typeof connection.metadata === "object" &&
         !Array.isArray(connection.metadata)
           ? (connection.metadata as Record<string, unknown>)
           : {};
-      const confirmed = Boolean(metadata.last_webhook_at);
+      const confirmed = connection.provider === "payt"
+        ? Boolean(metadata.last_processed_webhook_at)
+        : Boolean(metadata.last_webhook_at);
       const { data: products, error: productsError } = await adminContext.supabase
         .from("products")
         .select("id,external_id,name,current_price,currency")

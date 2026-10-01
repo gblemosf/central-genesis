@@ -21,6 +21,7 @@ import type {
 } from "@/lib/domain";
 import { operationalProviders, providerLabels } from "@/lib/domain";
 import { cn } from "@/lib/utils";
+import { PaytConnectionPanel } from "@/components/payt-connection-panel";
 
 const providerOptions: Provider[] = [...operationalProviders];
 
@@ -62,6 +63,7 @@ const providerHelp: Record<Provider, string> = {
   eduzz: "Token OAuth autorizado com o escopo myeduzz_products_read.",
   kiwify: "API Key, Client Secret e ID da conta para validar e listar produtos.",
   hubla: "A Hubla publica apenas token de webhook; produtos sao cadastrados manualmente.",
+  payt: "Criamos um endereço protegido para o postback PayT V1. Os produtos serão identificados nos eventos e vinculados ao projeto.",
   google_forms: "OAuth organizacional para ler formularios e respostas do Google Forms.",
 };
 
@@ -82,6 +84,7 @@ function credentialsFromForm(form: ConnectionForm) {
 }
 
 function hasRequiredCredentials(form: ConnectionForm) {
+  if (form.provider === "payt") return true;
   if (form.provider === "meta" || form.provider === "eduzz") return Boolean(form.accessToken);
   if (form.provider === "hotmart") {
     return Boolean(form.clientId && form.clientSecret && form.basicToken && form.hottok);
@@ -179,11 +182,11 @@ export function IntegrationsManager({
         id: crypto.randomUUID(),
         name: form.name || `${providerLabels[form.provider]} sem nome`,
         provider: form.provider,
-        status: "connected",
+        status: form.provider === "payt" ? "attention" : "connected",
         businessId: form.businessId || undefined,
         accountCount: 0,
         productCount: 0,
-        lastVerifiedAt: new Date().toISOString(),
+        lastVerifiedAt: form.provider === "payt" ? null : new Date().toISOString(),
       };
       await new Promise((resolve) => setTimeout(resolve, 450));
       setConnections((current) => [...current, connection]);
@@ -265,6 +268,8 @@ export function IntegrationsManager({
         );
       } else if (syncError) {
         setMessage(syncError);
+      } else if (body.data.provider === "payt") {
+        setMessage("Conexão Payt criada. Copie o endereço protegido e envie um teste PayT V1.");
       } else if (body.data.provider === "hubla") {
         setMessage("Webhook Hubla configurado. A confirmacao remota ocorrera no primeiro evento.");
       } else {
@@ -324,7 +329,7 @@ export function IntegrationsManager({
         confirmed
           ? "Conexao verificada com sucesso."
           : response.ok
-            ? "Token salvo, mas nenhum webhook valido foi recebido ainda."
+            ? "Recebimento e processamento ainda aguardam confirmação. Confira os eventos recebidos."
             : body?.error ?? "A verificacao falhou. Consulte o status da credencial.",
       );
     } catch {
@@ -494,8 +499,8 @@ export function IntegrationsManager({
             Integracoes
           </h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-[var(--muted)]">
-            Cadastre varios BMs da Meta e conexoes de vendas. Credenciais sao
-            write-only e nunca retornam ao navegador.
+            Cadastre conexões da Meta, plataformas de vendas e formulários.
+            Credenciais ficam no cofre. Administradores podem copiar o endereço protegido de recebimento da Payt.
           </p>
         </div>
         <button
@@ -527,6 +532,7 @@ export function IntegrationsManager({
                     connection.provider === "eduzz" && "bg-emerald-100 text-emerald-700",
                     connection.provider === "kiwify" && "bg-amber-100 text-amber-800",
                     connection.provider === "hubla" && "bg-rose-100 text-rose-700",
+                    connection.provider === "payt" && "bg-teal-100 text-teal-800",
                     connection.provider === "google_forms" && "bg-sky-100 text-sky-700",
                   )}
                 >
@@ -605,6 +611,7 @@ export function IntegrationsManager({
                   </button>
                 </div>
               )}
+              {connection.provider === "payt" && connection.status !== "revoked" && <PaytConnectionPanel connectionId={connection.id} demoMode={demoMode} />}
             </div>
 
             <div className="mt-5 grid grid-cols-2 gap-2">
@@ -627,7 +634,7 @@ export function IntegrationsManager({
                   <RefreshCw size={14} /> Reconectar
                 </button>
               )}
-              {connection.provider !== "hubla" && connection.provider !== "google_forms" && (
+              {connection.provider !== "hubla" && connection.provider !== "payt" && connection.provider !== "google_forms" && (
                 <button
                   type="button"
                   disabled={busyId === connection.id || connection.status === "revoked"}
@@ -642,7 +649,7 @@ export function IntegrationsManager({
                   Verificar
                 </button>
               )}
-              {connection.provider === "hubla" && (
+              {(connection.provider === "hubla" || connection.provider === "payt") && (
                 <button
                   type="button"
                   disabled={busyId === connection.id || connection.status === "revoked"}
@@ -749,7 +756,7 @@ export function IntegrationsManager({
             <p className="mt-2 max-w-3xl text-xs leading-6 text-white/48">
               O navegador envia o segredo uma unica vez para uma rota autenticada. O
               backend grava no cofre e responde apenas com o status. Verificar usa o
-              segredo em memoria; visualizar, copiar ou recuperar nao e permitido.
+              segredo em memória. Na Payt, um endereço protegido permite configurar o recebimento de eventos; o acesso a ele exige uma conta administradora.
             </p>
           </div>
         </div>
@@ -915,7 +922,7 @@ export function IntegrationsManager({
               ) : (
                 <Check size={15} />
               )}
-              {editingConnectionId ? "Salvar alteracoes" : "Validar e armazenar"}
+              {editingConnectionId ? "Salvar alteracoes" : form.provider === "payt" ? "Criar recebimento Payt" : "Validar e armazenar"}
             </button>
           </div>
         </div>

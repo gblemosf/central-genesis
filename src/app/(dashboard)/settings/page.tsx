@@ -40,6 +40,8 @@ const migrations = [
   ["20260811123241", "Normalizacao da importacao diaria por CSV"],
   ["20260911163137", "Recuperacao de checkout Hubla"],
   ["20260911170021", "Endpoint geral Hubla"],
+  ["20261001150616", "Provedor Payt"],
+  ["20261001150854", "Recebimento e processamento Payt"],
 ] as const;
 
 const databaseRequirements = [
@@ -49,7 +51,8 @@ const databaseRequirements = [
   { table: "traffic_metrics_daily", column: "id", label: "Trafego Meta" },
   { table: "sales_events", column: "id", label: "Eventos de venda" },
   { table: "hubla_webhook_events", column: "id", label: "Webhooks Hubla" },
-  { table: "checkout_recovery_attempts", column: "id", label: "Recuperacao Hubla" },
+  { table: "payt_webhook_receipts", column: "id", label: "Postbacks Payt" },
+  { table: "checkout_recovery_attempts", column: "id", label: "Recuperação de checkout" },
   { table: "project_daily_metrics", column: "project_id", label: "Metricas consolidadas" },
   { table: "project_csv_daily_metrics", column: "project_id", label: "Metricas CSV normalizadas" },
   { table: "metric_imports", column: "id", label: "Historico de importacoes" },

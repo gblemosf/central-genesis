@@ -4,6 +4,7 @@ export const providers = [
   "eduzz",
   "kiwify",
   "hubla",
+  "payt",
   "google_forms",
 ] as const;
 
@@ -13,8 +14,9 @@ export const operationalProviders = [
   "eduzz",
   "kiwify",
   "hubla",
+  "payt",
 ] as const;
-export const salesProviders = ["hotmart", "eduzz", "kiwify", "hubla"] as const;
+export const salesProviders = ["hotmart", "eduzz", "kiwify", "hubla", "payt"] as const;
 export const verifiableProviders = ["meta", "hotmart", "eduzz", "kiwify", "google_forms"] as const;
 export const catalogProviders = ["hotmart", "eduzz", "kiwify"] as const;
 export const funnelStageTypes = [
@@ -315,5 +317,6 @@ export const providerLabels: Record<Provider, string> = {
   eduzz: "Eduzz",
   kiwify: "Kiwify",
   hubla: "Hubla",
+  payt: "Payt",
   google_forms: "Google Forms",
 };

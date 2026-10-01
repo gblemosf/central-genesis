@@ -24,6 +24,7 @@ const requiredFields: Record<Provider, (keyof ProviderCredentialFields)[]> = {
   eduzz: ["accessToken"],
   kiwify: ["clientId", "clientSecret", "accountId"],
   hubla: ["webhookToken"],
+  payt: ["webhookToken"],
   google_forms: [],
 };
 
@@ -50,7 +51,7 @@ export function decodeProviderCredentials(
 
   if (provider === "meta" || provider === "eduzz") return { accessToken: raw };
   if (provider === "hotmart") return { hottok: raw };
-  if (provider === "hubla") return { webhookToken: raw };
+  if (provider === "hubla" || provider === "payt") return { webhookToken: raw };
   return {};
 }
 
@@ -67,6 +68,9 @@ export function serializeProviderCredentials(
   ) as ProviderCredentialFields;
 
   const missing = requiredFields[provider].filter((field) => !merged[field]);
+  if (provider === "payt" && merged.webhookToken && !/^[a-f0-9]{64}$/.test(merged.webhookToken)) {
+    throw new ApiError("O token de recebimento Payt precisa conter 64 caracteres hexadecimais.", 422);
+  }
   if (missing.length > 0) {
     throw new ApiError(
       `Preencha as credenciais obrigatorias: ${missing.join(", ")}.`,
