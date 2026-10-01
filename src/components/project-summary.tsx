@@ -546,13 +546,7 @@ export function ProjectSummary({
                 <button
                   type="button"
                   onClick={() =>
-                    onNavigate(
-                      item.target === "overview"
-                        ? "settings"
-                        : item.target === "metrics"
-                          ? "imports"
-                          : item.target,
-                    )
+                    onNavigate(item.target)
                   }
                   className="text-left text-xs text-amber-900 underline underline-offset-4"
                 >
@@ -564,7 +558,7 @@ export function ProjectSummary({
         )}
         <p className="mt-4 text-xs leading-5 text-[var(--muted)]">
           Vínculo não garante atualização. Confira sincronizações e erros em
-          Fontes e ajustes.
+          Configurar → Conexões e metas. Ausência de vendas no período não comprova falha na integração.
         </p>
         {link("settings", "Revisar fontes")}
       </>

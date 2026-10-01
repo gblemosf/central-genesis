@@ -494,13 +494,13 @@ export function IntegrationsManager({
     <div className="space-y-7">
       <header className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="eyebrow mb-3">Cofre operacional</p>
+          <p className="eyebrow mb-3">Contas e fontes de dados</p>
           <h1 className="text-4xl font-black tracking-[-0.055em] sm:text-5xl">
-            Integracoes
+            Conexões
           </h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-[var(--muted)]">
             Cadastre conexões da Meta, plataformas de vendas e formulários.
-            Credenciais ficam no cofre. Administradores podem copiar o endereço protegido de recebimento da Payt.
+            Cadastre uma conexão por conta e reutilize-a nos projetos. Depois, vincule os produtos e a conta de anúncios ao projeto. Credenciais ficam no cofre.
           </p>
         </div>
         <button
@@ -511,6 +511,8 @@ export function IntegrationsManager({
           <Plus size={17} /> Nova conexao
         </button>
       </header>
+
+      <Link href="/setup" className="inline-flex text-xs font-bold underline underline-offset-4">Ver passo a passo e requisitos de cada plataforma</Link>
 
       {message && (
         <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs font-medium text-blue-950">

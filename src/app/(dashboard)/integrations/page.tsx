@@ -4,7 +4,7 @@ import { getConnections } from "@/lib/data";
 import { isGoogleOAuthConfigured } from "@/lib/google/oauth";
 import { getSupabasePublicEnv } from "@/lib/supabase/env";
 
-export const metadata: Metadata = { title: "Integracoes" };
+export const metadata: Metadata = { title: "Conexões" };
 
 type IntegrationsPageProps = {
   searchParams?: Promise<{

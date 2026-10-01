@@ -12,13 +12,12 @@ export const workspaceSections = [
     views: [
       ["sales", "Compras"],
       ["recovery", "Recuperação"],
-      ["results", "Resultados"],
-      ["financial", "Custos e saldo"],
+      ["history", "Importar histórico Hotmart"],
     ],
   },
   {
     id: "marketing",
-    label: "Marketing",
+    label: "Divulgação",
     views: [
       ["origins", "Origens e UTMs"],
       ["metrics", "Tráfego diário"],
@@ -33,16 +32,24 @@ export const workspaceSections = [
     ],
   },
   {
+    id: "finance",
+    label: "Financeiro",
+    views: [
+      ["results", "Receita das vendas"],
+      ["financial", "Custos e saldo"],
+      ["costs", "Cadastrar custos"],
+      ["planning", "Projeções"],
+      ["assumptions", "Configurar projeções"],
+    ],
+  },
+  {
     id: "sources",
-    label: "Fontes e ajustes",
+    label: "Configurar",
     views: [
       ["settings", "Conexões e metas"],
       ["products", "Produtos e funil"],
       ["forms-setup", "Conectar formulários"],
-      ["history", "Histórico de vendas"],
       ["imports", "Importar CSV"],
-      ["planning", "Projeções"],
-      ["assumptions", "Premissas e custos"],
     ],
   },
 ] as const;
@@ -54,9 +61,42 @@ export const metricViews = {
   financial: "financial",
   planning: "planning",
   imports: "data",
+  costs: "costs",
   assumptions: "config",
 } as const;
 export type MetricView = (typeof metricViews)[keyof typeof metricViews];
+export type WorkspaceSection = (typeof workspaceSections)[number]["id"];
+
+export const workspaceDescriptions: Record<WorkspaceView, string> = {
+  overview: "Acompanhe os indicadores do projeto. Escolha período e produtos para aprofundar a análise.",
+  sales: "Consulte compras e valores por transação. Para buscar períodos anteriores, use Importar histórico Hotmart.",
+  recovery: "Acompanhe tentativas de compra e recuperações identificadas nos eventos recebidos.",
+  history: "Escolha o produto e o período que deseja buscar na Hotmart. A consulta continua com a tela fechada quando o agendador está ativo.",
+  origins: "Compare páginas, canais e UTMs das vendas. Informações não enviadas pela plataforma permanecem sem atribuição.",
+  metrics: "Consulte investimento e tráfego por dia. Os gastos pertencem à conta vinculada ao projeto.",
+  contacts: "Consulte os contatos identificados nas vendas, tentativas de compra e formulários recebidos.",
+  forms: "Veja as respostas e as colunas da planilha vinculada ao formulário. As perguntas definem as colunas automaticamente.",
+  results: "Confira bruto, taxas, líquido após taxas e repasse ao produtor. Estes valores ainda não descontam mídia e despesas externas.",
+  financial: "Confira os valores consolidados com investimento em mídia e custos cadastrados. Revise a base da receita antes de comparar com Receita das vendas.",
+  costs: "Informe somente despesas externas e regras do contrato. As taxas de venda recebidas da plataforma aparecem em Receita das vendas.",
+  planning: "Explore cenários futuros usando produtos e dados de referência. Projeções não alteram o resultado realizado.",
+  assumptions: "Escolha os produtos de referência e defina orçamento e metas. Preços e quantidades calculáveis usam os dados recebidos.",
+  settings: "Vincule a conta Meta, revise o estado do projeto e defina metas opcionais. Credenciais são cadastradas em Conexões no menu principal.",
+  products: "Vincule cada produto de venda ao projeto e à etapa do funil. Esse vínculo determina onde as compras aparecem.",
+  "forms-setup": "Vincule os formulários após autorizar a conta Google em Conexões. Confira o acesso à planilha vinculada separadamente.",
+  imports: "Use CSV como alternativa para dados diários indisponíveis nas integrações. Esta importação não recria transações, UTMs ou tentativas de compra.",
+};
+
+export function getWorkspaceSection(view: WorkspaceView) {
+  return workspaceSections.find((section) => section.views.some(([candidate]) => candidate === view))!;
+}
+
+export function sectionDestination(section: WorkspaceSection, current: WorkspaceView, remembered?: WorkspaceView): WorkspaceView {
+  const destination = workspaceSections.find((item) => item.id === section)!;
+  if (destination.views.some(([view]) => view === current)) return current;
+  if (remembered && destination.views.some(([view]) => view === remembered)) return remembered;
+  return destination.views[0][0];
+}
 export function isWorkspaceView(value: string | null): value is WorkspaceView {
   return workspaceSections.some((section) =>
     section.views.some(([view]) => view === value),

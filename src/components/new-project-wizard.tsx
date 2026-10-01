@@ -674,7 +674,7 @@ export function NewProjectWizard({
                   <p className="mt-3 text-xs font-black">Importacao manual por CSV</p>
                   <p className="mt-1 text-[10px] leading-4">
                     Trafego e vendas realizados podem ser importados depois da criacao,
-                    em Metricas &gt; Abastecimento.
+                    em Configurar &gt; Importar CSV.
                   </p>
                 </div>
               </div>

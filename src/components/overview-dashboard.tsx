@@ -3,6 +3,7 @@
 import Link from "next/link";
 import {
   ArrowUpRight,
+  ArrowRight,
   BadgeDollarSign,
   CircleDollarSign,
   Plus,
@@ -127,6 +128,7 @@ export function OverviewDashboard({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Link href="/setup" className="inline-flex h-11 items-center gap-2 rounded-xl border border-[var(--line)] bg-white px-4 text-xs font-bold">Passo a passo <ArrowRight size={14} /></Link>
           <select
             aria-label="Projeto na visão geral"
             value={selectedProject}

@@ -2,6 +2,8 @@
 
 Aplicacao interna para onboarding de experts, configuracao de integracoes, mapeamento de produtos, simulacao de funis e acompanhamento de performance real.
 
+Para começar, abra **Passo a passo** na aplicação. O [guia de configuração e navegação](docs/GUIA-CONFIGURACAO-E-NAVEGACAO.md) apresenta os requisitos de cada integração, o mapa das telas e as pendências verificadas em produção.
+
 ## Stack
 
 - Next.js 16 com App Router e TypeScript

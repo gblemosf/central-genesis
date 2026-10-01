@@ -1,6 +1,8 @@
 # Organização dos painéis
 
-Os projetos têm cinco áreas: Resumo, Vendas, Marketing, Público e Fontes e ajustes. Compras, recuperação e resultados ficam em Vendas; origens e tráfego diário em Marketing; contatos e respostas em Público. Configuração, mapeamento de produtos, importações e premissas ficam em Fontes e ajustes. Nenhuma dessas funções anteriores foi retirada.
+Os projetos têm seis áreas: Resumo, Vendas, Divulgação, Público, Financeiro e Configurar. Compras, recuperação e histórico Hotmart ficam em Vendas; origens e tráfego diário em Divulgação; contatos e respostas em Público. Receita, saldo, custos e projeções ficam no Financeiro. Vínculos e importação alternativa ficam em Configurar. As funções e os endereços anteriores foram preservados. O menu principal distingue acompanhamento, preparação da operação e ferramentas. A página `/setup` oferece roteiro de configuração e atalhos para o projeto escolhido.
+
+O mapa dos problemas, os requisitos completos e as pendências verificadas estão em [GUIA-CONFIGURACAO-E-NAVEGACAO.md](GUIA-CONFIGURACAO-E-NAVEGACAO.md).
 
 ## Contexto da análise
 
@@ -32,3 +34,5 @@ As preferências são salvas neste navegador por projeto, apenas com os identifi
 Há testes de preservação dos filtros, seleção vazia, preferências, separação dos valores financeiros, falhas de carregamento, intervalos de respostas e paginação de consultas. A navegação foi exercitada em navegador de teste local, com telas de computador e celular, sem alterar dados de produção.
 
 Esta reorganização não configura credenciais, não resolve vínculos de produtos ou contas pendentes e não substitui a validação operacional de cada integração. Não exige novas migrations ou Edge Functions. A disponibilização depende do deploy da aplicação.
+
+Na revisão de outubro, os testes também verificam a seleção do projeto nos atalhos, a diferença entre credencial cadastrada e verificada, a ausência de formulários vinculados, o comportamento de módulos opcionais e a preservação das referências de projeção ao salvar custos. A interface foi conferida em computador e celular em demonstração local, sem cadastrar eventos ou despesas em produção.

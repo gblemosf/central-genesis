@@ -95,7 +95,7 @@ export function ProjectsList({
             Projetos
           </h1>
           <p className="mt-3 text-sm text-[var(--muted)]">
-            Uma operacao isolada para cada expert, do onboarding ao resultado.
+            Abra um projeto para consultar vendas, divulgação, público e financeiro. Use Configurar dentro do projeto para vincular suas fontes.
           </p>
         </div>
         <Link

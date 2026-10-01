@@ -45,6 +45,16 @@ const analytics: ProjectAnalytics = {
 };
 
 describe("getProjectReadiness", () => {
+  it("direciona histórico somente para produtos Hotmart e evita CSV como primeira opção", () => {
+    const product = { id: "p", connectionId: "c", externalId: "e", name: "Produto", price: 47, currency: "BRL", source: "provider" as const, archivedAt: null, stageId: "s", mappedProjectId: project.id };
+    const empty = { ...analytics, dataSources: { ...analytics.dataSources, unmappedSalesEvents: 0 } };
+    for (const provider of ["hotmart", "hubla"] as const) {
+      const readiness = getProjectReadiness(project, { ...catalog, products: [product], salesConnections: [{ id: "c", name: "Conexão", provider, products: [] }] }, empty);
+      expect(readiness.items.find((item) => item.key === "sales")?.target).toBe(provider === "hotmart" ? "history" : "products");
+      expect(readiness.items.some((item) => item.target === "imports")).toBe(false);
+    }
+  });
+
   it("explica quando o projeto ainda nao esta operacional", () => {
     const readiness = getProjectReadiness(project, catalog, analytics);
 

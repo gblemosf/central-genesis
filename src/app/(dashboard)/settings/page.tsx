@@ -19,48 +19,11 @@ import {
 } from "lucide-react";
 import { CopyEnvironmentValue } from "@/components/copy-environment-value";
 import { getSupabasePublicEnv, getSupabaseSecretKey } from "@/lib/supabase/env";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { databaseRequirements, migrations, isBaseAvailable } from "@/lib/configuration-catalog";
+import { getDatabaseChecks } from "@/lib/configuration-status";
+import { isGoogleOAuthConfigured } from "@/lib/google/oauth";
 
-export const metadata: Metadata = { title: "Configuracoes" };
-
-const migrations = [
-  ["20260727201149", "Estrutura inicial e seguranca"],
-  ["20260727201637", "Protecao das funcoes legadas"],
-  ["20260802083509", "Catalogo de projetos e integracoes"],
-  ["20260802094346", "Onboarding editavel"],
-  ["20260802131909", "Recebimento de vendas Hubla"],
-  ["20260802211421", "Importacao dos CSVs de metricas"],
-  ["20260803171244", "Protecao dos eventos e reembolsos Hubla"],
-  ["20260803201504", "Exclusao segura de projetos"],
-  ["20260803210305", "Protecao do historico de projetos excluidos"],
-  ["20260804075737", "Exclusao segura dos projetos legados"],
-  ["20260804143613", "Provedor Google Forms"],
-  ["20260804143631", "Formularios, contatos e UTMs"],
-  ["20260804191134", "Ajustes runtime do Google Forms"],
-  ["20260811123241", "Normalizacao da importacao diaria por CSV"],
-  ["20260911163137", "Recuperacao de checkout Hubla"],
-  ["20260911170021", "Endpoint geral Hubla"],
-  ["20261001150616", "Provedor Payt"],
-  ["20261001150854", "Recebimento e processamento Payt"],
-] as const;
-
-const databaseRequirements = [
-  { table: "projects", column: "id", label: "Projetos" },
-  { table: "funnel_stages", column: "id", label: "Etapas de funil" },
-  { table: "integration_connections", column: "id", label: "Integracoes" },
-  { table: "traffic_metrics_daily", column: "id", label: "Trafego Meta" },
-  { table: "sales_events", column: "id", label: "Eventos de venda" },
-  { table: "hubla_webhook_events", column: "id", label: "Webhooks Hubla" },
-  { table: "payt_webhook_receipts", column: "id", label: "Postbacks Payt" },
-  { table: "checkout_recovery_attempts", column: "id", label: "Recuperação de checkout" },
-  { table: "project_daily_metrics", column: "project_id", label: "Metricas consolidadas" },
-  { table: "project_csv_daily_metrics", column: "project_id", label: "Metricas CSV normalizadas" },
-  { table: "metric_imports", column: "id", label: "Historico de importacoes" },
-  { table: "metricas_trafego", column: "organization_id", label: "Compatibilidade de trafego" },
-  { table: "metricas_vendas", column: "organization_id", label: "Compatibilidade de vendas" },
-  { table: "google_forms", column: "id", label: "Google Forms" },
-  { table: "project_form_analytics", column: "project_id", label: "Analise de formularios" },
-] as const;
+export const metadata: Metadata = { title: "Diagnóstico técnico" };
 
 function getProjectRef(url: string) {
   try {
@@ -80,8 +43,7 @@ export default async function SettingsPage() {
   const googleClientIdConfigured = Boolean(process.env.GOOGLE_CLIENT_ID?.trim());
   const googleClientSecretConfigured = Boolean(process.env.GOOGLE_CLIENT_SECRET?.trim());
   const googleRedirectUriConfigured = Boolean(process.env.GOOGLE_REDIRECT_URI?.trim());
-  const googleOAuthConfigured =
-    googleClientIdConfigured && googleClientSecretConfigured && googleRedirectUriConfigured;
+  const googleOAuthConfigured = isGoogleOAuthConfigured();
   const demoExplicitlyDisabled = process.env.NEXT_PUBLIC_DEMO_MODE === "false";
   const metaGraphVersion = process.env.META_GRAPH_API_VERSION?.trim() || "v25.0";
   const projectRef = getProjectRef(publicEnv.url);
@@ -89,56 +51,38 @@ export default async function SettingsPage() {
     ? `https://supabase.com/dashboard/project/${projectRef}`
     : "https://supabase.com/dashboard/projects";
 
-  const supabase = await createSupabaseServerClient();
-  let databaseReady = false;
-  let databaseChecks = databaseRequirements.map((requirement) => ({
-    ...requirement,
-    ready: false,
-    error: "Supabase indisponivel.",
-  }));
-
-  if (supabase) {
-    const checks = await Promise.all(
-      databaseRequirements.map((requirement) =>
-        supabase.from(requirement.table).select(requirement.column).limit(0),
-      ),
-    );
-    databaseChecks = databaseRequirements.map((requirement, index) => ({
-      ...requirement,
-      ready: !checks[index].error,
-      error: checks[index].error?.message ?? "",
-    }));
-    databaseReady = databaseChecks.every((check) => check.ready);
-  }
+  const databaseChecks = await getDatabaseChecks();
+  const databaseReady = isBaseAvailable(databaseChecks);
 
   const foundationChecks = [
     {
       label: "Conexao publica",
       ready: publicEnv.configured,
-      description: "A aplicacao consegue abrir sessoes protegidas pelo Supabase.",
+      description: "Verifica a presença da URL e da chave pública. Isso não confirma acesso às fontes externas.",
       icon: Database,
     },
     {
       label: "Operacoes do servidor",
       ready: secretConfigured,
-      description: "As rotas privadas conseguem acessar o cofre de credenciais.",
+      description: "Verifica a presença da chave privada do servidor. Sua validade não é testada nesta consulta.",
       icon: KeyRound,
     },
     {
       label: "Estrutura do banco",
       ready: databaseReady,
-      description: "As tabelas essenciais respondem para o usuario atual.",
+      description: "Consulta as estruturas principais para sua conta. Os módulos adicionais são verificados separadamente abaixo.",
       icon: LockKeyhole,
     },
     {
-      label: "Google Forms",
+      label: "Credenciais Google (opcional)",
       ready: googleOAuthConfigured,
-      description: "As tres credenciais OAuth estao disponiveis neste ambiente.",
+      description: "Verifica o formato das variáveis OAuth. A validade externa não é testada; autorize a conta e confira a leitura em Conexões.",
       icon: PlugZap,
     },
   ];
-  const completedFoundations = foundationChecks.filter((item) => item.ready).length;
-  const foundationReady = completedFoundations === foundationChecks.length;
+  const basicFoundations = foundationChecks.slice(0, 3);
+  const completedFoundations = basicFoundations.filter((item) => item.ready).length;
+  const foundationReady = completedFoundations === basicFoundations.length;
 
   const variables = [
     {
@@ -198,7 +142,7 @@ export default async function SettingsPage() {
     {
       name: "GOOGLE_CLIENT_ID",
       ready: googleClientIdConfigured,
-      required: true,
+      required: false,
       secret: true,
       value: "",
       description: "Client ID OAuth usado para autorizar a leitura de Google Forms.",
@@ -207,7 +151,7 @@ export default async function SettingsPage() {
     {
       name: "GOOGLE_CLIENT_SECRET",
       ready: googleClientSecretConfigured,
-      required: true,
+      required: false,
       secret: true,
       value: "",
       description: "Client Secret OAuth do mesmo app configurado no Google Cloud.",
@@ -216,7 +160,7 @@ export default async function SettingsPage() {
     {
       name: "GOOGLE_REDIRECT_URI",
       ready: googleRedirectUriConfigured,
-      required: true,
+      required: false,
       secret: false,
       value: process.env.GOOGLE_REDIRECT_URI?.trim() ?? "",
       description: "URL autorizada para retorno do OAuth Google Forms.",
@@ -228,14 +172,14 @@ export default async function SettingsPage() {
     <div className="space-y-8">
       <header className="grid gap-5 xl:grid-cols-[1fr_440px] xl:items-end">
         <div>
-          <p className="eyebrow mb-3">Central de configuracao</p>
+          <p className="eyebrow mb-3">Ferramentas do sistema</p>
           <h1 className="max-w-3xl text-4xl font-black tracking-[-0.055em] sm:text-5xl">
-            O que esta pronto e o que ainda falta
+            Diagnóstico técnico
           </h1>
           <p className="mt-4 max-w-3xl text-sm leading-6 text-[var(--muted)]">
-            Siga somente os itens amarelos. Se um item estiver verde, nao altere a
-            credencial: ele ja esta funcionando neste ambiente.
+            Consulte variáveis, estruturas e publicação. Um indicador verde confirma apenas a verificação descrita; não comprova uma integração completa.
           </p>
+          <Link href="/setup" className="mt-4 inline-flex items-center gap-2 text-sm font-bold underline underline-offset-4">Ver roteiro de configuração <ArrowRight size={14} /></Link>
         </div>
 
         <div
@@ -261,10 +205,10 @@ export default async function SettingsPage() {
             </span>
             <div>
               <p className="text-sm font-black">
-                {foundationReady ? "Base tecnica pronta" : "Existe uma pendencia tecnica"}
+                {foundationReady ? "Base principal disponível" : "Revisar base principal"}
               </p>
               <p className="mt-1 text-xs leading-5 text-[var(--muted)]">
-                {completedFoundations} de {foundationChecks.length} verificacoes
+                {completedFoundations} de {basicFoundations.length} verificacoes
                 concluidas nesta visita.
               </p>
             </div>
@@ -275,7 +219,7 @@ export default async function SettingsPage() {
                 foundationReady ? "bg-emerald-600" : "bg-amber-500"
               }`}
               style={{
-                width: `${(completedFoundations / foundationChecks.length) * 100}%`,
+                width: `${(completedFoundations / basicFoundations.length) * 100}%`,
               }}
             />
           </div>
@@ -314,7 +258,7 @@ export default async function SettingsPage() {
                     }`}
                   >
                     {item.ready ? <Check size={12} /> : <CircleAlert size={12} />}
-                    {item.ready ? "Pronto" : "Revisar"}
+                    {item.ready ? "Disponível" : "Revisar"}
                   </span>
                 </div>
                 <h3 className="text-sm font-black">{item.label}</h3>
@@ -327,6 +271,8 @@ export default async function SettingsPage() {
         </div>
       </section>
 
+      <details className="space-y-5 rounded-2xl border border-[var(--line)] p-5">
+        <summary className="cursor-pointer text-sm font-black">Variáveis da hospedagem e instruções de configuração</summary>
       <section
         className="panel overflow-hidden rounded-[26px]"
         aria-labelledby="variables-title"
@@ -517,7 +463,11 @@ export default async function SettingsPage() {
         </aside>
       </section>
 
-      <section className="panel rounded-[26px] p-6" aria-labelledby="database-title">
+      </details>
+
+      <details className="panel rounded-[26px] p-6">
+        <summary className="cursor-pointer text-sm font-black">Estruturas do banco e migrations · {databaseChecks.filter((item) => item.ready).length}/{databaseRequirements.length} acessíveis</summary>
+      <section className="mt-6" aria-labelledby="database-title">
         <div className="grid gap-5 border-b border-[var(--line)] pb-6 lg:grid-cols-[1fr_auto] lg:items-end">
           <div>
             <p className="eyebrow">Banco de dados</p>
@@ -525,7 +475,7 @@ export default async function SettingsPage() {
               id="database-title"
               className="mt-2 text-2xl font-black tracking-[-0.04em]"
             >
-              Estrutura operacional verificada
+              Estruturas consultadas nesta visita
             </h2>
             <p className="mt-2 max-w-3xl text-xs leading-5 text-[var(--muted)]">
               Esta verificacao consulta as tabelas e visoes realmente usadas pela aplicacao.
@@ -614,6 +564,21 @@ export default async function SettingsPage() {
         </div>
       </section>
 
+      </details>
+
+      <details className="panel rounded-2xl p-6">
+        <summary className="cursor-pointer text-sm font-black">Publicação das funções e atualização automática</summary>
+        <p className="mt-4 max-w-3xl text-xs leading-6 text-[var(--muted)]">A consulta de tabelas não confirma que os receptores ou agendadores estão ativos. Confira estas configurações no projeto Supabase correto e uma execução com registros processados.</p>
+        <ul className="mt-4 list-disc space-y-3 pl-4 text-xs leading-6 text-[var(--muted)]">
+          <li>Publicar as funções <code>hubla-webhook</code>, <code>fetch-meta-data</code> e <code>payt-webhook</code> conforme as fontes utilizadas. Hotmart recebe eventos pela rota da aplicação.</li>
+          <li>Google Forms: job <code>genesis-google-forms-sync</code>, destino da aplicação publicado e token dedicado no Vault. Configuração documentada em <code>docs/PROJECT-OPERATIONS.md</code>.</li>
+          <li>Histórico Hotmart: ativar com <code>scripts/activate-hotmart-history.sql</code>. Meta: ativar com <code>scripts/activate-meta-sync.sql</code>. Conferir o domínio de destino antes da execução.</li>
+          <li>Publicação automática do Supabase: segredos <code>SUPABASE_ACCESS_TOKEN</code> e <code>SUPABASE_DB_PASSWORD</code> no repositório. Sem eles, o fluxo de publicação pula as etapas do banco e das funções.</li>
+          <li>Payt: receber um payload real, revisar e validar o contrato no painel da conexão antes de ativar o processamento. Recebimento de evento não significa venda processada.</li>
+        </ul>
+        <a href={supabaseDashboardUrl} target="_blank" rel="noreferrer" className="mt-5 inline-flex items-center gap-2 text-xs font-bold underline underline-offset-4">Abrir projeto no Supabase <ExternalLink size={14} /></a>
+      </details>
+
       <section aria-labelledby="next-title">
         <p className="eyebrow">Depois da base tecnica</p>
         <h2 id="next-title" className="mt-2 text-2xl font-black tracking-[-0.04em]">
@@ -627,13 +592,13 @@ export default async function SettingsPage() {
             <span className="grid size-10 place-items-center rounded-xl bg-violet-100 text-violet-700">
               <PlugZap size={18} />
             </span>
-            <h3 className="mt-6 text-sm font-black">Meta, Hotmart e Hubla</h3>
+            <h3 className="mt-6 text-sm font-black">Meta e plataformas de venda</h3>
             <p className="mt-2 text-xs leading-5 text-[var(--muted)]">
-              Tokens e conexoes de negocio sao cadastrados em Integracoes, nao na
+              Tokens e conexoes de negocio sao cadastrados em Conexões, nao na
               Vercel. O sistema guarda cada segredo no cofre.
             </p>
             <span className="mt-5 flex items-center gap-2 text-xs font-black">
-              Abrir Integracoes{" "}
+              Abrir Conexões{" "}
               <ArrowRight size={14} className="transition group-hover:translate-x-1" />
             </span>
           </Link>
@@ -647,8 +612,7 @@ export default async function SettingsPage() {
             </span>
             <h3 className="mt-6 text-sm font-black">CSVs de trafego e vendas</h3>
             <p className="mt-2 text-xs leading-5 text-[var(--muted)]">
-              Abra o projeto e entre em Abastecimento. Baixe os modelos, preencha e envie
-              os dois arquivos; nenhuma credencial e necessaria.
+              No projeto, use Configurar → Importar CSV como alternativa para métricas diárias. Não substitui os eventos ou o histórico de transações.
             </p>
             <span className="mt-5 flex items-center gap-2 text-xs font-black">
               Abrir Projetos{" "}
@@ -662,8 +626,7 @@ export default async function SettingsPage() {
             </span>
             <h3 className="mt-6 text-sm font-black">Supabase e migrations</h3>
             <p className="mt-2 text-xs leading-5 text-[var(--muted)]">
-              Ja estao configurados para este projeto. Volte a esta secao apenas se um
-              indicador ficar amarelo ou depois de uma atualizacao tecnica.
+              Use as verificações acima para saber quais estruturas estão acessíveis. Publicação da Vercel não aplica migrations nem publica funções do Supabase.
             </p>
           </article>
         </div>

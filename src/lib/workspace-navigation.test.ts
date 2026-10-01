@@ -3,6 +3,8 @@ import {
   readWorkspaceLocation,
   workspaceQuery,
   workspaceSections,
+  workspaceDescriptions,
+  sectionDestination,
 } from "./workspace-navigation";
 import {
   parseWidgetPreference,
@@ -12,6 +14,13 @@ import {
 import type { SaleRow } from "./project-operations";
 
 describe("project navigation and saved preferences", () => {
+  it("keeps all previous deep links reachable with exactly one area and an explanation", () => {
+    const views = workspaceSections.flatMap((section) => section.views.map(([view]) => view));
+    expect(new Set(views).size).toBe(views.length);
+    for (const view of ["overview", "sales", "recovery", "results", "financial", "origins", "metrics", "contacts", "forms", "settings", "products", "forms-setup", "history", "imports", "planning", "assumptions"]) expect(views).toContain(view);
+    expect(Object.keys(workspaceDescriptions).sort()).toEqual([...views].sort());
+    expect(sectionDestination("finance", "sales", "forms")).toBe("results");
+  });
   it("keeps dates and multi-product selection in a reloadable link for every area", () => {
     const filter = {
       start: "2026-07-01",

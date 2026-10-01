@@ -23,7 +23,7 @@ const labels = {
   origins: "Origens das vendas",
   contacts: "Contatos",
   recovery: "Recuperação",
-  results: "Resultados",
+  results: "Receita das vendas",
 };
 const statusLabels: Record<string, string> = {
   paid: "Paga",
@@ -633,7 +633,7 @@ export function ProjectOperationsPanel({
               (currentPage - 1) * pageSize,
               currentPage * pageSize,
             ).map((row) => view === "sales" ? { ...row, cells: row.cells.filter((_, index) => columns.includes(index)) } : row)}
-            empty="Nenhum registro neste filtro. Confira o período e o vínculo dos produtos em Fontes e ajustes → Produtos e funil."
+            empty="Nenhum registro neste filtro. Confira o período e o vínculo dos produtos em Configurar → Produtos e funil."
           />
           <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-[var(--muted)]">
             <span>

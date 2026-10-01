@@ -3,13 +3,14 @@ import type {
   ProjectCatalog,
   ProjectSummary,
 } from "@/lib/domain";
+import type { WorkspaceView } from "@/lib/workspace-navigation";
 
 export interface ProjectReadinessItem {
   key: "status" | "catalog" | "metrics" | "sales" | "traffic";
   label: string;
   description: string;
   ready: boolean;
-  target: "overview" | "metrics" | "products" | "settings";
+  target: WorkspaceView;
 }
 
 export function getProjectReadiness(
@@ -22,8 +23,9 @@ export function getProjectReadiness(
       product.mappedProjectId === project.id && product.stageId && !product.archivedAt,
   );
   const hasSales = analytics.dailyMetrics.some(
-    (metric) => metric.revenue !== 0 || metric.coreSales !== 0,
+    (metric) => metric.revenue !== 0 || metric.coreSales !== 0 || metric.productMetrics.some((product) => product.quantity !== 0 || product.revenue !== 0),
   );
+  const hasHotmartProduct = mappedProducts.some((product) => catalog.salesConnections.some((connection) => connection.id === product.connectionId && connection.provider === "hotmart"));
   const hasTraffic = analytics.dailyMetrics.some(
     (metric) =>
       metric.investment !== 0 ||
@@ -56,32 +58,34 @@ export function getProjectReadiness(
     },
     {
       key: "metrics",
-      label: "Dados para análise",
+      label: "Dados no período",
       description: hasSales || hasTraffic
         ? "Selecione período e produtos para consultar os resultados. Custos externos são opcionais."
-        : "Conecte as fontes para preencher os painéis automaticamente.",
+        : "Não há dados neste período. Confira os vínculos e selecione outras datas antes de revisar a integração.",
       ready: hasSales || hasTraffic,
-      target: "metrics",
+      target: hasSales ? "sales" : hasTraffic ? "metrics" : "settings",
     },
     {
       key: "sales",
-      label: "Vendas chegando",
+      label: "Vendas no período",
       description: unmapped > 0
         ? `${unmapped} evento(s) da conexao ainda sem produto mapeado.`
         : hasSales
           ? "A fonte de vendas possui eventos ou linhas importadas."
-          : "Envie um evento de teste ou importe o CSV diario.",
+          : hasHotmartProduct
+            ? "Confira o recebimento de eventos ou importe o histórico Hotmart para este período."
+            : "Confira o produto e a entrega de eventos na plataforma de venda. Ausência de vendas no período não comprova falha.",
       ready: hasSales && unmapped === 0,
-      target: unmapped > 0 ? "products" : "metrics",
+      target: unmapped > 0 ? "products" : hasSales ? "sales" : hasHotmartProduct ? "history" : "products",
     },
     {
       key: "traffic",
-      label: "Trafego chegando",
+      label: "Tráfego no período",
       description: hasTraffic
         ? "Ha dados de Meta ou CSV para o projeto."
         : catalog.linkedMetaAccountId
           ? "A conta esta vinculada; execute a sincronizacao Meta."
-          : "Vincule uma conta Meta ou importe o CSV diario.",
+          : "Vincule a conta Meta usada nas campanhas para sincronizar o tráfego.",
       ready: hasTraffic,
       target: catalog.linkedMetaAccountId ? "overview" : "settings",
     },

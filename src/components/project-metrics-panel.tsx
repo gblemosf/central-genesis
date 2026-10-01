@@ -35,6 +35,8 @@ import {
 import { automaticMetricFields, resolveMetricReferences, usesAutomaticMetric, type MetricReference } from "@/lib/metric-references";
 import { filterProductMetrics, type AnalysisFilter } from "@/lib/analysis-filters";
 import { formatCurrency, formatNumber, formatPercent } from "@/lib/utils";
+import Link from "next/link";
+import type { MetricView } from "@/lib/workspace-navigation";
 
 const decimalFormatter = new Intl.NumberFormat("pt-BR", {
   minimumFractionDigits: 0,
@@ -180,8 +182,8 @@ export function ProjectMetricsPanel({
   demoMode: boolean;
   readOnly?: boolean;
   filter: AnalysisFilter;
-  view?: "daily" | "financial" | "planning" | "data" | "config";
-  onViewChange?: (view: "daily" | "financial" | "planning" | "data" | "config") => void;
+  view?: MetricView;
+  onViewChange?: (view: MetricView) => void;
 }) {
   const router = useRouter();
   const [loadedAnalytics, setLoadedAnalytics] = useState<ProjectAnalytics | null>(null);
@@ -197,9 +199,7 @@ export function ProjectMetricsPanel({
     analytics.dataSources.metaTrafficRows > 0 ||
     analytics.dataSources.webhookSalesEvents > 0;
   const [isRefreshing, startTransition] = useTransition();
-  const [localView, setLocalView] = useState<
-    "daily" | "financial" | "planning" | "data" | "config"
-  >(hasObservedData ? "daily" : "data");
+  const [localView, setLocalView] = useState<MetricView>(hasObservedData ? "daily" : "data");
   const view = controlledView ?? localView;
   const setView = onViewChange ?? setLocalView;
   const [config, setConfig] = useState(analytics.config);
@@ -542,8 +542,9 @@ export function ProjectMetricsPanel({
           ["daily", "Metricas diarias"],
           ["financial", "Financeiro"],
           ["planning", "Metas e projecoes"],
-          ["data", "Abastecimento"],
-          ["config", "Premissas"],
+          ["data", "Importar CSV"],
+          ["costs", "Cadastrar custos"],
+          ["config", "Configurar projeções"],
         ].map(([key, label]) => (
           <button
             key={key}
@@ -558,7 +559,7 @@ export function ProjectMetricsPanel({
         ))}
       </div>}
 
-      {!hasAnySourceRows && (
+      {!hasAnySourceRows && view !== "costs" && view !== "config" && (
         <section className="rounded-[24px] border border-amber-200 bg-amber-50 p-6 text-amber-950">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
             <div className="max-w-2xl">
@@ -567,25 +568,22 @@ export function ProjectMetricsPanel({
                 Este projeto ainda nao recebeu dados observados
               </h2>
               <p className="mt-2 text-xs leading-5">
-                O CSV diario ou as integracoes alimentam o que realmente aconteceu. As
-                premissas servem apenas para custos e projecoes futuras; elas nao
-                substituem os dados observados.
+                Confira as conexões e o vínculo dos produtos. Para períodos anteriores, busque o histórico da Hotmart. O CSV diário é uma alternativa; custos e projeções não criam vendas.
               </p>
             </div>
             <div className="flex shrink-0 flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => setView("data")}
+              <Link
+                href="/setup"
                 className="inline-flex items-center gap-2 rounded-xl bg-[var(--ink)] px-4 py-3 text-xs font-bold text-white"
               >
-                <Upload size={14} /> Importar CSV diario
-              </button>
+                <Database size={14} /> Revisar passo a passo
+              </Link>
               <button
                 type="button"
                 onClick={() => setView("config")}
                 className="inline-flex items-center gap-2 rounded-xl border border-amber-300 px-4 py-3 text-xs font-bold"
               >
-                Entender premissas <ArrowRight size={14} />
+                Configurar projeções <ArrowRight size={14} />
               </button>
             </div>
           </div>
@@ -748,7 +746,7 @@ export function ProjectMetricsPanel({
             ))}
           </section>
 
-          <p className="rounded-xl bg-blue-50 p-4 text-xs leading-5">O resultado considera somente receitas e custos registrados. Taxas contratuais, participação e despesas externas precisam ser informadas quando existirem. Consulte Vendas para conferir bruto, taxas e repasse ao produtor.</p>
+          <div className="space-y-2 rounded-xl bg-blue-50 p-4 text-xs leading-5"><p>O resultado considera somente receitas e custos registrados. Taxas contratuais, participação e despesas externas precisam ser informadas quando existirem. Os totais de despesas não são rateados ao mudar o período. Consulte Receita das vendas para conferir bruto, taxas e repasse ao produtor.</p><button type="button" onClick={() => setView("costs")} className="font-bold underline underline-offset-4">Revisar custos e regras</button></div>
 
           <section className="grid gap-4 xl:grid-cols-2">
             <article className="panel rounded-[24px] p-6">
@@ -1154,17 +1152,17 @@ export function ProjectMetricsPanel({
         )
       )}
 
-      {view === "config" && (
+      {(view === "config" || view === "costs") && (
         <div className="space-y-4">
           <section className="rounded-[24px] bg-[var(--sidebar)] p-6 text-white">
             <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">
               Antes de preencher
             </p>
             <h2 className="mt-2 text-2xl font-black tracking-[-0.04em]">
-              Selecione os produtos. Os dados calculáveis vêm das integrações.
+              {view === "costs" ? "Custos e regras do projeto" : "Referências para projetar os próximos resultados"}
             </h2>
             <p className="mt-2 max-w-3xl text-xs leading-5 text-white/60">
-              Preços líquidos e quantidades usam as vendas do período de referência. O CPA base usa o gasto registrado quando há um único produto de entrada. Metas, orçamento, custos externos e presença precisam de uma definição sua.
+              {view === "costs" ? "Informe os totais que devem ser descontados nesta análise. Estes valores são salvos para o projeto inteiro e não são rateados automaticamente ao mudar as datas. Revise os custos quando trocar o período; recorrência mensal ainda não é calculada." : "Preços líquidos e quantidades usam as vendas do período de referência. O CPA base usa o gasto registrado quando há um único produto de entrada. Defina somente metas, orçamento e presença que as integrações não fornecem."}
             </p>
             {!configConfirmed && (
               <p className="mt-4 rounded-xl bg-amber-300/15 px-4 py-3 text-[11px] leading-5 text-amber-100">
@@ -1173,7 +1171,7 @@ export function ProjectMetricsPanel({
             )}
           </section>
 
-          <button type="button" className="rounded-xl bg-emerald-100 px-4 py-3 text-xs font-bold text-emerald-950" onClick={() => updateConfig("automaticMetrics", Object.fromEntries(automaticMetricFields.map((field) => [field, true])))}>Usar dados das integrações</button>
+          {view === "costs" && <>
           <section className="panel rounded-[24px] p-6">
             <p className="eyebrow">Regras financeiras opcionais</p>
             <p className="mt-2 text-xs leading-5 text-[var(--muted)]">
@@ -1200,7 +1198,7 @@ export function ProjectMetricsPanel({
           <section className="panel rounded-[24px] p-6">
             <p className="eyebrow">Custos da operacao</p>
             <p className="mt-2 text-xs leading-5 text-[var(--muted)]">
-              Valores descontados do faturamento no Financeiro. Nao sao lidos dos CSVs.
+              Totais descontados em Custos e saldo. São despesas externas; não incluem as taxas de venda da plataforma.
             </p>
             <div className="mt-5 grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
               <NumberField label="Manychat / automacao" value={config.manychatCost} help="Custo do periodo com Manychat ou ferramenta equivalente." onChange={(value) => updateConfig("manychatCost", value)} />
@@ -1208,6 +1206,11 @@ export function ProjectMetricsPanel({
               <NumberField label="Outros custos" value={config.otherCosts} help="Despesas adicionais que nao entram nas categorias anteriores." onChange={(value) => updateConfig("otherCosts", value)} />
             </div>
           </section>
+          </>}
+
+          {view === "config" && <>
+          <p className="text-xs leading-5 text-[var(--muted)]">Para despesas e regras do contrato, use <button type="button" onClick={() => setView("costs")} className="font-bold underline underline-offset-4">Cadastrar custos</button>. Esta tela define somente as referências dos cenários futuros.</p>
+          <button type="button" className="rounded-xl bg-emerald-100 px-4 py-3 text-xs font-bold text-emerald-950" onClick={() => updateConfig("automaticMetrics", Object.fromEntries(automaticMetricFields.map((field) => [field, true])))}>Usar dados das integrações</button>
 
           <section className="panel rounded-[24px] p-6">
             <p className="eyebrow">Planejamento de investimento</p>
@@ -1295,6 +1298,7 @@ export function ProjectMetricsPanel({
               <NumberField label="Meta de captacao" value={config.captureTarget} help="Objetivo de alunos captados para o periodo." onChange={(value) => updateConfig("captureTarget", value)} />
             </div>
           </details>
+          </>}
 
           <button
             type="button"
@@ -1309,7 +1313,7 @@ export function ProjectMetricsPanel({
             ) : (
               <Save size={15} />
             )}
-            {saveState === "saving" ? "Salvando..." : "Salvar premissas"}
+            {saveState === "saving" ? "Salvando..." : view === "costs" ? "Salvar custos e regras" : "Salvar referências da projeção"}
           </button>
         </div>
       )}

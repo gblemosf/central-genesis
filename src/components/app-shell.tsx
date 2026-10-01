@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   Menu,
   Settings,
+  ListChecks,
   X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -18,11 +19,18 @@ import { SignOutButton } from "@/components/sign-out-button";
 import { cn } from "@/lib/utils";
 
 const navigation = [
-  { href: "/overview", label: "Visão geral", icon: LayoutDashboard },
-  { href: "/projects", label: "Projetos", icon: FolderKanban },
-  { href: "/integrations", label: "Integrações", icon: Blocks },
-  { href: "/simulator", label: "Simulador", icon: FlaskConical },
-  { href: "/settings", label: "Configurações", icon: Settings },
+  { label: "Acompanhar", items: [
+    { href: "/overview", label: "Visão geral", icon: LayoutDashboard },
+    { href: "/projects", label: "Projetos", icon: FolderKanban },
+  ] },
+  { label: "Preparar a operação", items: [
+    { href: "/setup", label: "Passo a passo", icon: ListChecks },
+    { href: "/integrations", label: "Conexões", icon: Blocks },
+  ] },
+  { label: "Ferramentas", items: [
+    { href: "/simulator", label: "Simulador", icon: FlaskConical },
+    { href: "/settings", label: "Diagnóstico técnico", icon: Settings },
+  ] },
 ];
 
 interface AppShellProps {
@@ -86,8 +94,10 @@ export function AppShell({ children, userLabel, demoMode }: AppShellProps) {
           </div>
         </div>
 
-        <nav className="space-y-1" aria-label="Navegação principal">
-          {navigation.map((item) => {
+        <nav className="space-y-6 pb-6" aria-label="Navegação principal">
+          {navigation.map((group) => <div key={group.label}>
+            <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.15em] text-white/40">{group.label}</p>
+            <div className="space-y-1">{group.items.map((item) => {
             const active = pathname.startsWith(item.href);
             const Icon = item.icon;
             return (
@@ -114,13 +124,14 @@ export function AppShell({ children, userLabel, demoMode }: AppShellProps) {
                 />
               </Link>
             );
-          })}
+          })}</div>
+          </div>)}
         </nav>
 
         <div className="mt-auto space-y-4">
-          <Link href="/integrations" onClick={() => setOpen(false)} className="block rounded-2xl border border-white/10 bg-white/5 p-4 text-xs leading-5 text-white/70">
-            {demoMode ? "Ambiente de demonstração" : "Conexões e sincronizações"}
-            <span className="mt-1 block text-white/50">{demoMode ? "Os exemplos não representam vendas reais." : "Consulte o estado de cada fonte de dados."}</span>
+          <Link href="/setup" onClick={() => setOpen(false)} className="block rounded-2xl border border-white/10 bg-white/5 p-4 text-xs leading-5 text-white/70">
+            {demoMode ? "Ambiente de demonstração" : "Precisa configurar algo?"}
+            <span className="mt-1 block text-white/50">{demoMode ? "Os exemplos não representam vendas reais." : "Veja a sequência e o que falta em cada etapa."}</span>
           </Link>
           <div className="flex items-center gap-3 px-2">
             <div className="grid size-9 place-items-center rounded-full bg-white/9 text-xs font-bold">

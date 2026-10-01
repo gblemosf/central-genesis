@@ -760,6 +760,11 @@ export function ProjectWorkspace({
 
   return (
     <div className="space-y-6">
+      <nav aria-label="Localização" className="flex flex-wrap items-center gap-2 text-xs text-[var(--muted)]">
+        <Link href="/projects" className="font-semibold underline underline-offset-4">Projetos</Link>
+        <span aria-hidden="true">/</span><span>{project.name}</span>
+        <Link href="/setup" className="ml-auto font-semibold underline underline-offset-4">Ver passo a passo</Link>
+      </nav>
       <header className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex items-center gap-4">
           <div
@@ -778,9 +783,9 @@ export function ProjectWorkspace({
         </div>
       </header>
       <ProjectNavigation value={tab} onChange={setTab} />
-      {["overview", "sales", "origins", "contacts", "recovery", "results", "metrics", "financial", "planning", "forms"].includes(tab) && (
+      {["overview", "sales", "origins", "contacts", "recovery", "results", "metrics", "financial", "planning", "forms", "costs", "assumptions"].includes(tab) && (
         <AnalysisFilters value={analysisFilter} onChange={setAnalysisFilter}
-          products={products.filter((product) => product.mappedProjectId === project.id && !product.archivedAt)} hideProducts={tab === "forms"} />
+          products={products.filter((product) => product.mappedProjectId === project.id && !product.archivedAt)} hideProducts={tab === "forms" || tab === "costs"} />
       )}
       {["sales", "origins", "contacts", "recovery", "results"].includes(tab) && (
         <ProjectOperationsPanel key={tab} projectId={project.id} view={tab as OperationView} demoMode={demoMode || project.legacy}
@@ -797,7 +802,7 @@ export function ProjectWorkspace({
         <section className="panel rounded-[24px] p-5 sm:p-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <p className="eyebrow">Prontidao operacional</p>
+              <p className="eyebrow">Vínculos e dados disponíveis</p>
               <h2 className="mt-2 text-xl font-black tracking-[-0.035em]">
                 {readiness.ready
                   ? "Fontes com registros disponíveis"
@@ -811,7 +816,7 @@ export function ProjectWorkspace({
                   : "bg-amber-100 text-amber-800"
               }`}
             >
-              {readiness.completed}/{readiness.total} concluido(s)
+              {readiness.completed}/{readiness.total} itens com evidência
             </span>
           </div>
           <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
@@ -819,7 +824,7 @@ export function ProjectWorkspace({
               <button
                 key={item.key}
                 type="button"
-                onClick={() => setTab(item.target === "overview" ? "metrics" : item.target === "metrics" ? "imports" : item.target)}
+                onClick={() => setTab(item.target)}
                 className={`rounded-2xl border p-4 text-left transition hover:-translate-y-0.5 ${
                   item.ready
                     ? "border-emerald-200 bg-emerald-50/70"
