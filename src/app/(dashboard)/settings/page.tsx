@@ -100,7 +100,7 @@ export default async function SettingsPage() {
   if (supabase) {
     const checks = await Promise.all(
       databaseRequirements.map((requirement) =>
-        supabase.from(requirement.table).select(requirement.column, { head: true }),
+        supabase.from(requirement.table).select(requirement.column).limit(0),
       ),
     );
     databaseChecks = databaseRequirements.map((requirement, index) => ({
