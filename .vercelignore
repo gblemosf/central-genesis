@@ -3,4 +3,9 @@
 /opencode.json
 /opencode.json.md
 /skills-lock.json
-/supabase
+/supabase/*
+!/supabase/functions
+/supabase/functions/*
+!/supabase/functions/payt-webhook
+/supabase/functions/payt-webhook/*
+!/supabase/functions/payt-webhook/normalize.ts
