@@ -1354,7 +1354,7 @@ export async function getSalesConnectionsForOnboarding(): Promise<SalesConnectio
     .order("created_at");
   if (connectionError || !connections?.length) return [];
 
-  const usableConnections = connections.filter(connection => connection.status === "connected" || connection.provider === "payt");
+  const usableConnections = connections.filter(connection => connection.status === "connected" || connection.provider === "payt" || connection.provider === "assiny");
   const connectionIds = usableConnections.map((connection) => connection.id);
   if (!connectionIds.length) return [];
   const [products, mappings] = await Promise.all([

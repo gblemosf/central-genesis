@@ -20,6 +20,7 @@ export interface SetupSnapshot {
 export function buildSetupGuide(snapshot: SetupSnapshot): SetupStep[] {
   const usable = snapshot.connections.filter((item) => item.status !== "revoked");
   const sales = usable.filter((item) => ["hotmart", "hubla", "payt"].includes(item.provider));
+  const assiny = usable.filter((item) => item.provider === "assiny");
   const meta = usable.filter((item) => item.provider === "meta");
   const google = usable.filter((item) => item.provider === "google_forms");
   const projects = snapshot.projects.filter((item) => !item.legacy && item.status !== "archived");
@@ -39,8 +40,8 @@ export function buildSetupGuide(snapshot: SetupSnapshot): SetupStep[] {
     {
       id: "sales", title: "Conectar a plataforma de vendas", status: connectionStatus(sales),
       description: "Cadastre uma conexão por conta de venda. Ela pode atender vários produtos e projetos.",
-      evidence: snapshot.connectionsWarning ? "A consulta de conexões falhou; os cadastros existentes não foram considerados ausentes." : `${sales.length} conexão(ões) Hotmart, Hubla ou Payt cadastrada(s). Cadastro e validação de credenciais não confirmam recebimento de todas as vendas.${!paytAvailable ? " A estrutura Payt ainda está indisponível neste ambiente." : ""}`,
-      tasks: ["Hotmart: cadastrar Client ID, Client Secret, Basic Token e HOTTOK; validar a conexão e sincronizar os produtos. A API busca histórico e o webhook recebe novas alterações.", "Hubla: cadastrar o token e copiar o endpoint geral. Configurar os eventos na Hubla e vincular os IDs dos produtos aos projetos.", "Payt: criar o endereço protegido, configurar o postback PayT V1 e enviar um evento real para validar o contrato antes de processar vendas. O sistema ainda não importa histórico da Payt pela API.", "Eduzz e Kiwify têm cadastro e catálogo; o recebimento de vendas ainda não está implementado neste projeto."],
+      evidence: snapshot.connectionsWarning ? "A consulta de conexões falhou; os cadastros existentes não foram considerados ausentes." : `${sales.length} conexão(ões) Hotmart, Hubla ou Payt cadastrada(s). Cadastro e validação de credenciais não confirmam recebimento de todas as vendas.${!paytAvailable ? " A estrutura Payt ainda está indisponível neste ambiente." : ""}${assiny.length ? ` ${assiny.length} conexão(ões) Assiny em preparação, sem processamento de vendas.` : ""}`,
+      tasks: ["Hotmart: cadastrar Client ID, Client Secret, Basic Token e HOTTOK; validar a conexão e sincronizar os produtos. A API busca histórico e o webhook recebe novas alterações.", "Hubla: cadastrar o token e copiar o endpoint geral. Configurar os eventos na Hubla e vincular os IDs dos produtos aos projetos.", "Payt: criar o endereço protegido, configurar o postback PayT V1 e enviar um evento real para validar o contrato antes de processar vendas. O sistema ainda não importa histórico da Payt pela API.", "Assiny: preparar a conexão sem acesso à conta. O receptor próprio permite conferir eventos; catálogo, valores, UTMs e autenticação oficial aguardam validação com documentação e payload real.", "Eduzz e Kiwify têm cadastro e catálogo; o recebimento de vendas ainda não está implementado neste projeto."],
       action: "Abrir conexões", href: "/integrations",
     },
     {

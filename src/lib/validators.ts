@@ -84,6 +84,7 @@ const requiredCredentialFields = {
   kiwify: ["clientId", "clientSecret", "accountId"],
   hubla: ["webhookToken"],
   payt: [],
+  assiny: [],
 } as const;
 
 export const credentialInputSchema = z.object({

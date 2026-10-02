@@ -7,7 +7,7 @@ export async function POST(request: Request) {
   try {
     const context = await requireAdmin();
     const input = connectionWithCredentialInputSchema.parse(await request.json());
-    const credentials = input.provider === "payt" && !input.credentials.webhookToken
+    const credentials = (input.provider === "payt" || input.provider === "assiny") && !input.credentials.webhookToken
       ? { ...input.credentials, webhookToken: randomBytes(32).toString("hex") }
       : input.credentials;
     const credential = serializeProviderCredentials(input.provider, credentials);
@@ -23,8 +23,8 @@ export async function POST(request: Request) {
         p_system_user_id: input.systemUserId ?? null,
       },
     );
-    if (createError && input.provider === "payt" && createError.code === "22P02") {
-      throw new ApiError("Publique as migrations Payt no Supabase antes de criar esta conexão.", 503);
+    if (createError && (input.provider === "payt" || input.provider === "assiny") && createError.code === "22P02") {
+      throw new ApiError(`Publique as migrations ${input.provider === "assiny" ? "Assiny" : "Payt"} no Supabase antes de criar esta conexão.`, 503);
     }
     if (createError) throw createError;
     if (!data || typeof data !== "object" || Array.isArray(data)) {

@@ -575,6 +575,7 @@ export default async function SettingsPage() {
           <li>Histórico Hotmart: ativar com <code>scripts/activate-hotmart-history.sql</code>. Meta: ativar com <code>scripts/activate-meta-sync.sql</code>. Conferir o domínio de destino antes da execução.</li>
           <li>Publicação automática do Supabase: segredos <code>SUPABASE_ACCESS_TOKEN</code> e <code>SUPABASE_DB_PASSWORD</code> no repositório. Sem eles, o fluxo de publicação pula as etapas do banco e das funções.</li>
           <li>Payt: receber um payload real, revisar e validar o contrato no painel da conexão antes de ativar o processamento. Recebimento de evento não significa venda processada.</li>
+          <li>Assiny: aplicar as migrations de preparação e publicar <code>assiny-webhook</code>. Autenticação da plataforma, campos de vendas e eventual API aguardam documentação oficial e um evento real. Consulte <code>docs/ASSINY-INTEGRACAO.md</code>.</li>
         </ul>
         <a href={supabaseDashboardUrl} target="_blank" rel="noreferrer" className="mt-5 inline-flex items-center gap-2 text-xs font-bold underline underline-offset-4">Abrir projeto no Supabase <ExternalLink size={14} /></a>
       </details>

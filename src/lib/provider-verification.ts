@@ -181,6 +181,9 @@ export async function verifyProviderCredential(
       };
     }
 
+    if (provider === "assiny") {
+      return { ok: false, error: "A Assiny está em pré-configuração. O contrato oficial e uma entrega real ainda precisam ser validados." };
+    }
     if (!credentials.webhookToken) throw new Error(`Token de webhook ${provider === "payt" ? "da Payt" : "da Hubla"} ausente.`);
     return {
       ok: true,

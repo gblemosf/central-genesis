@@ -22,6 +22,8 @@ export const migrations = [
   ["20260913133708", "Sincronização automática Meta"],
   ["20261001150616", "Provedor Payt"],
   ["20261001150854", "Recebimento e processamento Payt"],
+  ["20261002123044", "Provedor Assiny"],
+  ["20261002123156", "Preparação do recebimento Assiny"],
 ] as const;
 
 export const databaseRequirements = [
@@ -33,6 +35,7 @@ export const databaseRequirements = [
   { table: "traffic_metrics_daily", column: "id", label: "Tráfego Meta", module: "meta" },
   { table: "hubla_webhook_events", column: "id", label: "Webhooks Hubla", module: "hubla" },
   { table: "payt_webhook_receipts", column: "id", label: "Postbacks Payt", module: "payt" },
+  { table: "assiny_webhook_receipts", column: "id", label: "Conferência de eventos Assiny", module: "assiny" },
   { table: "checkout_recovery_attempts", column: "id", label: "Recuperação de checkout", module: "sales" },
   { table: "hotmart_import_jobs", column: "id", label: "Fila de histórico Hotmart", module: "hotmart" },
   { table: "sync_runs", column: "id", label: "Registro de sincronizações", module: "jobs" },

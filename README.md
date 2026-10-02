@@ -25,6 +25,7 @@ Para começar, abra **Passo a passo** na aplicação. O [guia de configuração 
 - Sincronizacao de Meta Insights por projeto
 - Webhook Hotmart autenticado por `X-HOTMART-HOTTOK`
 - Gateway Payt com endpoint protegido, caixa de eventos, conferência e reprocessamento de pendências
+- Assiny em pré-configuração independente, com recebimento protegido e conferência de eventos; processamento de vendas ainda pendente do contrato oficial ([instruções](docs/ASSINY-INTEGRACAO.md))
 - Produtos e etapas de funil normalizados, sem colunas fixas como `ob1` ou `ob2`
 - Simulador em cascata ou com todas as conversoes partindo do Low Ticket
 - Modo demonstracao quando o Supabase ainda nao esta configurado

@@ -17,6 +17,10 @@ verify_jwt = false
 [functions.payt-webhook]
 verify_jwt = false
 
+# Preparation receiver; authenticates our delivery token, pending Assiny's official contract.
+[functions.assiny-webhook]
+verify_jwt = false
+
 [api]
 enabled = true
 # Port to use for the API URL.

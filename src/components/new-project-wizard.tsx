@@ -217,7 +217,7 @@ export function NewProjectWizard({
   }
 
   function salesCredentials() {
-    if (form.salesProvider === "payt") return {};
+    if (form.salesProvider === "payt" || form.salesProvider === "assiny") return {};
     if (form.salesProvider === "hotmart") {
       return {
         clientId: salesCredential.clientId,
@@ -244,7 +244,7 @@ export function NewProjectWizard({
 
   const connectionFormComplete =
     Boolean(salesCredential.name.trim()) &&
-    (form.salesProvider === "payt" ? true : form.salesProvider === "hotmart"
+    (form.salesProvider === "payt" || form.salesProvider === "assiny" ? true : form.salesProvider === "hotmart"
       ? Boolean(
           salesCredential.clientId &&
             salesCredential.clientSecret &&
@@ -348,7 +348,7 @@ export function NewProjectWizard({
       }
 
       let products: SalesConnectionOption["products"] = [];
-      if (form.salesProvider !== "hubla" && form.salesProvider !== "payt") {
+      if (form.salesProvider !== "hubla" && form.salesProvider !== "payt" && form.salesProvider !== "assiny") {
         const syncResponse = await fetch(`/api/connections/${created.data.id}/products`, {
           method: "POST",
         });
@@ -856,6 +856,7 @@ export function NewProjectWizard({
                   <p className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-[11px] leading-5 text-amber-950">
                     {form.salesProvider === "hubla"
                       ? "A mesma Edge Function atende todas as conexoes. Esta URL identifica a conexao e o token autentica cada evento recebido."
+                      : form.salesProvider === "assiny" ? "Prepare a conexão e cadastre os produtos de referência. O catálogo automático, as vendas e os valores aguardam documentação e um evento real da Assiny."
                       : form.salesProvider === "payt" ? "O sistema cria o endereço protegido para o postback. Depois de criar a conexão, copie o endereço em Integrações e envie o teste PayT V1."
                       : "As credenciais serao gravadas no cofre, validadas na plataforma e usadas para sincronizar o catalogo agora."}
                   </p>
@@ -884,7 +885,7 @@ export function NewProjectWizard({
                   ) : (
                     <button type="button" disabled={connecting || !connectionFormComplete} onClick={createSalesConnection} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--ink)] py-3 text-xs font-black text-white disabled:opacity-40">
                       {connecting ? <LoaderCircle size={15} className="animate-spin" /> : <Check size={15} />}
-                      {connecting ? (form.salesProvider === "payt" ? "Criando recebimento..." : "Validando e sincronizando...") : (form.salesProvider === "payt" ? "Criar recebimento Payt" : "Confirmar conexao")}
+                      {connecting ? (form.salesProvider === "assiny" || form.salesProvider === "payt" ? "Preparando recebimento..." : "Validando e sincronizando...") : (form.salesProvider === "assiny" ? "Preparar recebimento Assiny" : form.salesProvider === "payt" ? "Criar recebimento Payt" : "Confirmar conexao")}
                     </button>
                   )}
                 </div>

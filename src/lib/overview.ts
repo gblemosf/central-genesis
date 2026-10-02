@@ -41,6 +41,7 @@ export function buildOverviewDailySeries(
 }
 
 export function connectionOperationalSummary(connection: IntegrationConnection) {
+  if (connection.provider === "assiny") return connection.status === "revoked" ? "Conexão revogada" : "Pré-configurada · formato dos eventos pendente";
   if (connection.provider === "hubla" || connection.provider === "payt") {
     if (connection.status !== "connected") {
       return connection.productCount > 0

@@ -29,6 +29,9 @@ describe("setup guide evidence", () => {
   it("does not mistake catalog-only providers or revoked connections for a sales integration", () => {
     const connection = demoConnections.find((item) => item.provider === "hotmart")!;
     expect(status({ ...snapshot, connections: [{ ...connection, provider: "eduzz" }] }, "sales")).toBe("pending");
+    const prepared = { ...snapshot, connections: [{ ...connection, provider: "assiny" as const }] };
+    expect(status(prepared, "sales")).toBe("pending");
+    expect(buildSetupGuide(prepared).find(step => step.id === "sales")?.evidence).toContain("sem processamento de vendas");
     expect(status({ ...snapshot, connections: [{ ...connection, status: "revoked" }] }, "sales")).toBe("pending");
   });
   it("reports unknown rather than missing when source queries fail", () => {

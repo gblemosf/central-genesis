@@ -22,6 +22,7 @@ import type {
 import { operationalProviders, providerLabels } from "@/lib/domain";
 import { cn } from "@/lib/utils";
 import { PaytConnectionPanel } from "@/components/payt-connection-panel";
+import { AssinyConnectionPanel } from "@/components/assiny-connection-panel";
 
 const providerOptions: Provider[] = [...operationalProviders];
 
@@ -64,6 +65,7 @@ const providerHelp: Record<Provider, string> = {
   kiwify: "API Key, Client Secret e ID da conta para validar e listar produtos.",
   hubla: "A Hubla publica apenas token de webhook; produtos sao cadastrados manualmente.",
   payt: "Criamos um endereço protegido para o postback PayT V1. Os produtos serão identificados nos eventos e vinculados ao projeto.",
+  assiny: "Pré-configuração independente. Prepare o recebimento agora; vendas, valores e catálogo aguardam documentação e um evento real da Assiny.",
   google_forms: "OAuth organizacional para ler formularios e respostas do Google Forms.",
 };
 
@@ -84,7 +86,7 @@ function credentialsFromForm(form: ConnectionForm) {
 }
 
 function hasRequiredCredentials(form: ConnectionForm) {
-  if (form.provider === "payt") return true;
+  if (form.provider === "payt" || form.provider === "assiny") return true;
   if (form.provider === "meta" || form.provider === "eduzz") return Boolean(form.accessToken);
   if (form.provider === "hotmart") {
     return Boolean(form.clientId && form.clientSecret && form.basicToken && form.hottok);
@@ -182,11 +184,11 @@ export function IntegrationsManager({
         id: crypto.randomUUID(),
         name: form.name || `${providerLabels[form.provider]} sem nome`,
         provider: form.provider,
-        status: form.provider === "payt" ? "attention" : "connected",
+        status: form.provider === "payt" || form.provider === "assiny" ? "attention" : "connected",
         businessId: form.businessId || undefined,
         accountCount: 0,
         productCount: 0,
-        lastVerifiedAt: form.provider === "payt" ? null : new Date().toISOString(),
+        lastVerifiedAt: form.provider === "payt" || form.provider === "assiny" ? null : new Date().toISOString(),
       };
       await new Promise((resolve) => setTimeout(resolve, 450));
       setConnections((current) => [...current, connection]);
@@ -268,6 +270,8 @@ export function IntegrationsManager({
         );
       } else if (syncError) {
         setMessage(syncError);
+      } else if (body.data.provider === "assiny") {
+        setMessage("Assiny pré-configurada. A integração de vendas será validada com a documentação e um evento real.");
       } else if (body.data.provider === "payt") {
         setMessage("Conexão Payt criada. Copie o endereço protegido e envie um teste PayT V1.");
       } else if (body.data.provider === "hubla") {
@@ -535,6 +539,7 @@ export function IntegrationsManager({
                     connection.provider === "kiwify" && "bg-amber-100 text-amber-800",
                     connection.provider === "hubla" && "bg-rose-100 text-rose-700",
                     connection.provider === "payt" && "bg-teal-100 text-teal-800",
+                    connection.provider === "assiny" && "bg-orange-100 text-orange-800",
                     connection.provider === "google_forms" && "bg-sky-100 text-sky-700",
                   )}
                 >
@@ -614,6 +619,7 @@ export function IntegrationsManager({
                 </div>
               )}
               {connection.provider === "payt" && connection.status !== "revoked" && <PaytConnectionPanel connectionId={connection.id} demoMode={demoMode} />}
+              {connection.provider === "assiny" && connection.status !== "revoked" && <AssinyConnectionPanel connectionId={connection.id} demoMode={demoMode} />}
             </div>
 
             <div className="mt-5 grid grid-cols-2 gap-2">
@@ -636,7 +642,7 @@ export function IntegrationsManager({
                   <RefreshCw size={14} /> Reconectar
                 </button>
               )}
-              {connection.provider !== "hubla" && connection.provider !== "payt" && connection.provider !== "google_forms" && (
+              {connection.provider !== "hubla" && connection.provider !== "payt" && connection.provider !== "assiny" && connection.provider !== "google_forms" && (
                 <button
                   type="button"
                   disabled={busyId === connection.id || connection.status === "revoked"}
@@ -924,7 +930,7 @@ export function IntegrationsManager({
               ) : (
                 <Check size={15} />
               )}
-              {editingConnectionId ? "Salvar alteracoes" : form.provider === "payt" ? "Criar recebimento Payt" : "Validar e armazenar"}
+              {editingConnectionId ? "Salvar alteracoes" : form.provider === "assiny" ? "Preparar recebimento Assiny" : form.provider === "payt" ? "Criar recebimento Payt" : "Validar e armazenar"}
             </button>
           </div>
         </div>
