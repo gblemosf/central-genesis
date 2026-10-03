@@ -4,6 +4,7 @@ import { record, text } from "@/lib/sales-attribution";
 import {
   recoveryFromRecord,
   saleFromRecord,
+  saleRowsFromRecord,
   type ProjectOperations,
 } from "@/lib/project-operations";
 
@@ -48,7 +49,7 @@ export async function loadProjectOperations(
     readAllRows((from, to) =>
       scoped(
         "sales_events",
-        "id,connection_id,external_event_id,external_transaction_id,event_type,event_at,created_at,gross_amount,net_amount,currency,payload,contact_id,contacts(name,email,phone),integration_connections(provider),sales_event_items(product_id,product_name_snapshot,stage_type_snapshot)",
+        "id,connection_id,external_event_id,external_transaction_id,event_type,event_at,created_at,gross_amount,net_amount,currency,payload,contact_id,contacts(name,email,phone),integration_connections(provider),sales_event_items(product_id,gross_amount,net_amount,product_name_snapshot,stage_type_snapshot,products(external_id))",
       )
         .gte("event_at", `${start}T00:00:00-03:00`)
         .lt("event_at", `${end}T00:00:00-03:00`)
@@ -97,7 +98,7 @@ export async function loadProjectOperations(
   ]);
   if (project.error)
     throw new ApiError("Não foi possível consultar a moeda do projeto.", 503);
-  const saleRows = sales.map(saleFromRecord);
+  const saleRows = sales.flatMap(saleRowsFromRecord);
   const key = (connection: string, transaction: string) =>
     `${connection}:${transaction}`;
   const actualRefunds = new Set(

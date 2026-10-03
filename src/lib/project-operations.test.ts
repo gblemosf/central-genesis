@@ -6,6 +6,7 @@ import {
 import {
   csvDocument,
   saleFromRecord,
+  saleRowsFromRecord,
   summarizeSales,
 } from "@/lib/project-operations";
 import { saleAttribution } from "@/lib/sales-attribution";
@@ -41,6 +42,22 @@ const purchase = (currency = "BRL") =>
   )!;
 
 describe("project sales presentation", () => {
+  it("shows validated invoice items with their own values and inherited tracking without duplicating transaction counts", () => {
+    const item = (external: string, gross: number, fee: number) => ({ product_external_id: external, product_name: external,
+      financial: { gross, platform_fee: fee, net_after_fees: gross-fee, payout: null, payout_source: 'unknown' } });
+    const row = { id: 'sale', connection_id: 'assiny-connection', external_transaction_id: 'T1', currency: 'BRL', gross_amount: 344, net_amount: 323.28,
+      event_type: 'PURCHASE_APPROVED', integration_connections: {provider:'assiny'}, payload: { provider:'assiny', contract_version:1,
+        items:[item('core',297,17.72),{...item('bump',47,3),is_order_bump:true}], attribution:{utm:{source:'meta'}} },
+      sales_event_items:[{product_id:'p-core',gross_amount:297,net_amount:279.28,product_name_snapshot:'Principal',products:{external_id:'core'}},
+        {product_id:'p-bump',gross_amount:47,net_amount:44,product_name_snapshot:'Acervo',stage_type_snapshot:'order_bump',products:{external_id:'bump'}}] };
+    const sales = saleRowsFromRecord(row);
+    expect(sales).toMatchObject([{id:'sale:p-core',provider:'assiny',gross:297,afterFees:279.28,payout:null,attribution:{source:'meta'}},
+      {id:'sale:p-bump',provider:'assiny',gross:47,afterFees:44,payout:null,orderBump:true,attribution:{source:'meta'}}]);
+    const refunds = saleRowsFromRecord({...row,event_type:'PURCHASE_REFUNDED'});
+    expect(summarizeSales([...sales,...refunds],'BRL')).toMatchObject({transactions:1,refunds:1,gross:344,refunded:344,afterFees:0,payout:null});
+    expect(summarizeSales([sales[1]],'BRL').gross).toBe(47);
+    expect(saleRowsFromRecord({...row,payload:{financial:{platform_fee:20.72}}})).toHaveLength(1);
+  });
   it("separates the real example's platform fee from the producer share", () => {
     const event = purchase();
     const row = saleFromRecord({

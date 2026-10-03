@@ -140,6 +140,28 @@ export function saleFromRecord(row: Record<string, unknown>): SaleRow {
   };
 }
 
+// Validated gateway invoices have exact amounts per product. Legacy invoices
+// stay as one row because splitting their totals would invent an allocation.
+export function saleRowsFromRecord(row: Record<string, unknown>): SaleRow[] {
+  const payload = record(row.payload);
+  if (!['assiny', 'payt'].includes(text(payload.provider)) || payload.contract_version !== 1 || !Array.isArray(payload.items)) {
+    return [saleFromRecord(row)];
+  }
+  const storedItems = Array.isArray(row.sales_event_items) ? row.sales_event_items.map(record) : [];
+  if (storedItems.length !== payload.items.length || !storedItems.length) return [saleFromRecord(row)];
+  const items = payload.items.map(record);
+  const matches = items.map(item => storedItems.find(stored => text(relation(stored.products).external_id) === text(item.product_external_id)));
+  if (matches.some(item => !item) || new Set(matches.map(item => item?.product_id)).size !== items.length) return [saleFromRecord(row)];
+  return items.map((item, index) => {
+    const stored = matches[index]!;
+    const financial = record(item.financial);
+    const sale = saleFromRecord({ ...row, gross_amount: stored.gross_amount, net_amount: stored.net_amount, sales_event_items: stored,
+      payload: { ...payload, product_external_id: item.product_external_id, product_name: item.product_name,
+        is_order_bump: item.is_order_bump, financial, offer: { id: item.offer_id, name: item.offer_name } } });
+    return { ...sale, id: `${sale.id}:${text(stored.product_id)}` };
+  });
+}
+
 export function recoveryFromRecord(row: Record<string, unknown>): RecoveryRow {
   const metadata = record(row.metadata);
   const contact = { ...record(metadata.contact), ...relation(row.contacts) },
@@ -201,7 +223,7 @@ export function summarizeSales(sales: SaleRow[], currency: string) {
     transactions: new Set(
       paid.map((sale) => `${sale.connectionId}:${sale.transaction}`),
     ).size,
-    refunds: rows.filter((sale) => sale.status === "refunded").length,
+    refunds: refundedTransactions.size,
     gross: paid.reduce((sum, sale) => sum + sale.gross, 0),
     refunded: -rows
       .filter((sale) => sale.status === "refunded")

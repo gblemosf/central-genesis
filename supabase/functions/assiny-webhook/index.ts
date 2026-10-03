@@ -1,12 +1,12 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "@supabase/supabase-js";
 import { assinyDeliveryKey, prepareAssinyPayload } from "./payload.ts";
+import { normalizeAssinyPayload } from "./normalize.ts";
 
 const maxBodyBytes = 1_000_000;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-// Genesis-generated protection for a preparation receiver. This does not
-// implement or claim Assiny's vendor authentication, pending official docs.
+// Dedicated delivery token, registered in the source account's webhook URL.
 Deno.serve(async (request: Request) => {
   if (request.method !== "POST") return new Response("Method not allowed", { status: 405, headers: { Allow: "POST" } });
   const url = new URL(request.url);
@@ -42,12 +42,16 @@ Deno.serve(async (request: Request) => {
       for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
       prepared = prepareAssinyPayload(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)));
     } catch { return new Response("Invalid JSON", { status: 400 }); }
-    const received = await supabase.rpc("receive_assiny_webhook", {
+    const contract = await supabase.rpc("get_assiny_webhook_contract", { p_connection_id: connectionId });
+    if (contract.error) return new Response("Service unavailable", { status: 503 });
+    const normalized = normalizeAssinyPayload(prepared.payload, contract.data);
+    const received = await supabase.rpc("receive_assiny_normalized", {
       p_connection_id: connectionId, p_token: token,
       p_idempotency_key: await assinyDeliveryKey(prepared.canonical), p_payload: prepared.payload,
+      p_normalized: normalized.value ?? null, p_review_reason: normalized.reason ?? null,
     });
     if (received.error || !received.data?.receipt_id) return new Response("Persistence failed", { status: 500 });
     return Response.json({ accepted: true, duplicate: Boolean(received.data.duplicate), receiptId: received.data.receipt_id,
-      state: "awaiting_contract", processed: false }, { status: 202 });
+      state: received.data.state, processed: received.data.state === "processed" }, { status: 202 });
   } catch { return new Response("Service unavailable", { status: 503 }); }
 });

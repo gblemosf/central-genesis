@@ -25,15 +25,15 @@ describe("Assiny preparation transport", () => {
     const response = await handler(request());
     expect(response.status).toBe(202);
     expect(await response.json()).toMatchObject({ accepted: true, state: "awaiting_contract", processed: false });
-    expect(rpc).toHaveBeenCalledWith("receive_assiny_webhook", expect.objectContaining({ p_connection_id: connectionId, p_token: token,
+    expect(rpc).toHaveBeenCalledWith("receive_assiny_normalized", expect.objectContaining({ p_connection_id: connectionId, p_token: token,
       p_payload: { arbitrary: "not-an-official-schema", buyer: { email: "test@example.invalid" } } }));
-    expect(rpc.mock.calls.map(call => call[0])).toEqual(["resolve_assiny_webhook_connection", "receive_assiny_webhook"]);
+    expect(rpc.mock.calls.map(call => call[0])).toEqual(["resolve_assiny_webhook_connection", "get_assiny_webhook_contract", "receive_assiny_normalized"]);
   });
   it("denies wrong/missing tokens and a token directed at another connection", async () => {
     expect((await handler(request({}, ""))).status).toBe(401);
     expect((await handler(request({}, "b".repeat(64)))).status).toBe(401);
     expect((await handler(request({}, token, "00000000-0000-4000-8000-000000000091"))).status).toBe(401);
-    expect(rpc).not.toHaveBeenCalledWith("receive_assiny_webhook", expect.anything());
+    expect(rpc).not.toHaveBeenCalledWith("receive_assiny_normalized", expect.anything());
   });
   it("rejects malformed, empty, array, too deeply nested and oversized payloads", async () => {
     expect((await handler(request([]))).status).toBe(400);
@@ -47,7 +47,7 @@ describe("Assiny preparation transport", () => {
   });
   it("does not acknowledge success when persistence fails", async () => {
     rpc.mockImplementation(async name => ({ data: name === "resolve_assiny_webhook_connection" ? connectionId : null,
-      error: name === "receive_assiny_webhook" ? { message: "failure" } : null }));
+      error: name === "receive_assiny_normalized" ? { message: "failure" } : null }));
     expect((await handler(request())).status).toBe(500);
   });
   it("deduplicates equivalent JSON without merging distinct redacted originals", async () => {

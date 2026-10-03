@@ -1,5 +1,5 @@
 // Transport preparation only. No Assiny event/transaction/amount fields are assumed.
-const privateKeys = /^(authorization|cookie|setcookie|headers|password|secret|clientsecret|accesstoken|refreshtoken|token|webhooktoken|apikey|hottok|cpf|cnpj|document|documentnumber|address|billingaddress|shippingaddress|card|cardnumber|cvv|pixcode|pixqrcode)$/;
+const privateKeys = /^(authorization|cookie|setcookie|headers|password|secret|clientsecret|accesstoken|refreshtoken|token|webhooktoken|apikey|hottok|cpf|cnpj|document|documentnumber|organizationdocument|organizationdocumenttype|address|billingaddress|shippingaddress|card|cardnumber|cvv|pixcode|pixqrcode|qrcode|barcode|additionaldata|ip|useragent)$/;
 
 function cleanString(value: string) {
   // Prevent delivery credentials embedded in URLs from entering the review inbox.
