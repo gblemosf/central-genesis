@@ -10,7 +10,15 @@ import { readConnectionSecret, storeConnectionSecret } from "@/lib/secret-store"
 
 const stateCookieName = "genesis_google_oauth_state";
 
-function redirectToIntegrations(requestUrl: string, status: "connected" | "error") {
+type GoogleOAuthStatus =
+  | "connected"
+  | "error"
+  | "session_expired"
+  | "invalid_response"
+  | "session_mismatch"
+  | "cancelled";
+
+function redirectToIntegrations(requestUrl: string, status: GoogleOAuthStatus) {
   const url = new URL("/integrations", requestUrl);
   url.searchParams.set("googleForms", status);
   return Response.redirect(url);
@@ -18,30 +26,47 @@ function redirectToIntegrations(requestUrl: string, status: "connected" | "error
 
 export async function GET(request: Request) {
   const cookieStore = await cookies();
+  let failureStatus: GoogleOAuthStatus = "error";
   try {
     const url = new URL(request.url);
     const error = url.searchParams.get("error");
-    if (error) throw new ApiError(`Google recusou a autorizacao: ${error}.`, 422);
+    if (error) {
+      if (error === "access_denied") failureStatus = "cancelled";
+      throw new ApiError("Google nao concluiu a autorizacao.", 422);
+    }
 
     const code = url.searchParams.get("code");
     const state = url.searchParams.get("state");
     const expectedState = cookieStore.get(stateCookieName)?.value;
     cookieStore.delete(stateCookieName);
 
-    if (!code || !state || !expectedState || state !== expectedState) {
+    if (!code || !state) {
+      failureStatus = "invalid_response";
+      throw new ApiError("Resposta OAuth invalida.", 400);
+    }
+    if (!expectedState) {
+      failureStatus = "session_expired";
+      throw new ApiError("Sessao de autorizacao Google expirada ou indisponivel.", 400);
+    }
+    if (state !== expectedState) {
+      failureStatus = "invalid_response";
       throw new ApiError("Resposta OAuth invalida.", 400);
     }
 
+    failureStatus = "invalid_response";
     const stateData = parseGoogleOAuthState(state);
     if (Date.now() - stateData.issuedAt > 10 * 60 * 1000) {
+      failureStatus = "session_expired";
       throw new ApiError("Autorizacao Google expirada.", 400);
     }
 
+    failureStatus = "error";
     const context = await requireAdmin();
     if (
       stateData.userId !== context.userId ||
       stateData.organizationId !== context.organizationId
     ) {
+      failureStatus = "session_mismatch";
       throw new ApiError("Sessao OAuth nao corresponde ao usuario atual.", 403);
     }
 
@@ -113,7 +138,7 @@ export async function GET(request: Request) {
   } catch (error) {
     cookieStore.delete(stateCookieName);
     if (error instanceof ApiError) {
-      return redirectToIntegrations(request.url, "error");
+      return redirectToIntegrations(request.url, failureStatus);
     }
     return apiErrorResponse(error);
   }
