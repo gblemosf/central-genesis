@@ -21,20 +21,15 @@ export async function POST(
     }
     if (!connection || connection.revoked_at) throw new ApiError("Conexao nao encontrada.", 404);
 
-    // Preparing our receiver is not verification of Assiny's delivery contract.
-    if (connection.provider === "assiny") {
-      return Response.json({ ok: true, confirmed: false, mode: "webhook", lastVerifiedAt: null,
-        message: "Recebimento Assiny pré-configurado. Autenticação e campos da plataforma aguardam validação oficial.", products: [] });
-    }
     const secret = await readConnectionSecret(connectionId);
-    if (connection.provider === "hubla" || connection.provider === "payt") {
+    if (connection.provider === "hubla" || connection.provider === "payt" || connection.provider === "assiny") {
       const metadata =
         connection.metadata &&
         typeof connection.metadata === "object" &&
         !Array.isArray(connection.metadata)
           ? (connection.metadata as Record<string, unknown>)
           : {};
-      const confirmed = connection.provider === "payt"
+      const confirmed = connection.provider === "payt" || connection.provider === "assiny"
         ? Boolean(metadata.last_processed_webhook_at)
         : Boolean(metadata.last_webhook_at);
       const { data: products, error: productsError } = await adminContext.supabase

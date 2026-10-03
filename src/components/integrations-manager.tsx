@@ -65,7 +65,7 @@ const providerHelp: Record<Provider, string> = {
   kiwify: "API Key, Client Secret e ID da conta para validar e listar produtos.",
   hubla: "A Hubla publica apenas token de webhook; produtos sao cadastrados manualmente.",
   payt: "Criamos um endereço protegido para o postback PayT V1. Os produtos serão identificados nos eventos e vinculados ao projeto.",
-  assiny: "Pré-configuração independente. Prepare o recebimento agora; vendas, valores e catálogo aguardam documentação e um evento real da Assiny.",
+  assiny: "Webhook próprio da Assiny para receber vendas, tentativas e reembolsos. Os eventos validados entram no projeto ao vincular os produtos ao funil.",
   google_forms: "OAuth organizacional para ler formularios e respostas do Google Forms.",
 };
 
@@ -642,7 +642,7 @@ export function IntegrationsManager({
                   <RefreshCw size={14} /> Reconectar
                 </button>
               )}
-              {connection.provider !== "hubla" && connection.provider !== "payt" && connection.provider !== "assiny" && connection.provider !== "google_forms" && (
+              {connection.provider !== "hubla" && connection.provider !== "payt" && connection.provider !== "assiny" && (
                 <button
                   type="button"
                   disabled={busyId === connection.id || connection.status === "revoked"}
