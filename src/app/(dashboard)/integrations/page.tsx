@@ -30,7 +30,9 @@ export default async function IntegrationsPage({ searchParams }: IntegrationsPag
   const connections = await getConnections();
   const params = await searchParams;
   const googleFormsStatus = firstParam(params?.googleForms);
-  const oauthMessage = googleFormsStatus ? googleOAuthMessages[googleFormsStatus] : undefined;
+  const oauthMessage = googleFormsStatus && Object.hasOwn(googleOAuthMessages, googleFormsStatus)
+    ? googleOAuthMessages[googleFormsStatus]
+    : undefined;
   return (
     <IntegrationsManager
       initialConnections={connections.data}
