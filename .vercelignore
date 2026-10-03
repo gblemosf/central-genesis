@@ -9,3 +9,6 @@
 !/supabase/functions/payt-webhook
 /supabase/functions/payt-webhook/*
 !/supabase/functions/payt-webhook/normalize.ts
+!/supabase/functions/assiny-webhook
+/supabase/functions/assiny-webhook/*
+!/supabase/functions/assiny-webhook/normalize.ts
