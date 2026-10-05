@@ -528,10 +528,10 @@ export function ProjectSummary({
               ),
             ],
             [
-              "Conta Meta",
-              catalog.metaAccounts.find(
-                (account) => account.id === catalog.linkedMetaAccountId,
-              )?.name || "Não vinculada",
+              "Contas Meta",
+              catalog.metaAccounts.filter(
+                (account) => (catalog.linkedMetaAccountIds ?? [catalog.linkedMetaAccountId]).includes(account.id),
+              ).map((account) => account.name).join(" + ") || "Não vinculada",
             ],
             [
               "Google Forms",

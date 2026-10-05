@@ -19,13 +19,22 @@ export async function PUT(
     if (projectError) throw new ApiError("Nao foi possivel consultar o projeto.", 503);
     if (!project) throw new ApiError("Projeto nao encontrado.", 404);
 
-    const { error } = await context.supabase.rpc("set_project_meta_account", {
-      p_organization_id: context.organizationId,
-      p_project_id: projectId,
-      p_provider_account_id: input.providerAccountId,
-    });
+    const multiple = "providerAccountIds" in input;
+    const { error } = await context.supabase.rpc(
+      multiple ? "set_project_meta_accounts" : "set_project_meta_account",
+      {
+        p_organization_id: context.organizationId,
+        p_project_id: projectId,
+        ...(multiple
+          ? { p_provider_account_ids: input.providerAccountIds }
+          : { p_provider_account_id: input.providerAccountId }),
+      },
+    );
     if (error?.code === "23505") {
       throw new ApiError("Esta conta Meta ja esta vinculada a outro projeto.", 409);
+    }
+    if (error?.code === "22023") {
+      throw new ApiError("Selecione contas Meta ativas com a mesma moeda e fuso do projeto.", 422);
     }
     if (error) throw error;
 

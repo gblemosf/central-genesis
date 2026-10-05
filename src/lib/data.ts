@@ -504,7 +504,7 @@ export async function getProjectCatalog(projectId: string): Promise<ProjectCatal
       .order("name"),
     supabase
       .from("project_accounts")
-      .select("provider_account_id,project_id")
+      .select("provider_account_id,project_id,is_primary")
       .eq("organization_id", project.organization_id),
     supabase
       .from("integration_connections")
@@ -539,9 +539,10 @@ export async function getProjectCatalog(projectId: string): Promise<ProjectCatal
   const mappingByProduct = new Map(
     (mappings.data ?? []).map((mapping) => [mapping.product_id, mapping]),
   );
-  const linkedAccount = (projectAccounts.data ?? []).find(
+  const linkedAccounts = (projectAccounts.data ?? []).filter(
     (link) => link.project_id === projectId,
   );
+  const linkedAccount = linkedAccounts.find((link) => link.is_primary) ?? linkedAccounts[0];
   const accountLinks = new Map(
     (projectAccounts.data ?? []).map((link) => [link.provider_account_id, link.project_id]),
   );
@@ -580,6 +581,7 @@ export async function getProjectCatalog(projectId: string): Promise<ProjectCatal
         name: account.name,
       })),
     linkedMetaAccountId: linkedAccount?.provider_account_id ?? null,
+    linkedMetaAccountIds: linkedAccounts.map((link) => link.provider_account_id),
     salesConnections: (salesConnections.data ?? []).map((connection) => ({
       id: connection.id,
       name: connection.name,

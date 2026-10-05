@@ -273,6 +273,7 @@ export interface ProjectCatalog {
   metaAccounts: MetaAccountOption[];
   salesConnections: SalesConnectionOption[];
   linkedMetaAccountId: string | null;
+  linkedMetaAccountIds?: string[];
   warning?: string;
 }
 

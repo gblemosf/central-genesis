@@ -129,9 +129,15 @@ export const projectMappingsInputSchema = z.object({
     ),
 });
 
-export const projectMetaAccountInputSchema = z.object({
-  providerAccountId: z.uuid().nullable(),
-});
+export const projectMetaAccountInputSchema = z.union([
+  z.object({
+    providerAccountIds: z.array(z.uuid()).max(50).refine(
+      (ids) => new Set(ids).size === ids.length,
+      "Selecione cada conta apenas uma vez.",
+    ),
+  }).strict(),
+  z.object({ providerAccountId: z.uuid().nullable() }).strict(),
+]);
 
 export const googleFormSyncInputSchema = z
   .object({

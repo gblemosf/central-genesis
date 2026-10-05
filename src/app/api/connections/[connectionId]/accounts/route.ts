@@ -1,5 +1,6 @@
 import { ApiError, apiErrorResponse, requireAdmin } from "@/lib/api-auth";
 import { fetchMetaCollection } from "@/lib/meta-api";
+import { canonicalMetaTimezone } from "@/lib/meta-timezone";
 import { decodeProviderCredentials } from "@/lib/provider-credentials";
 import { readConnectionSecret } from "@/lib/secret-store";
 
@@ -107,9 +108,12 @@ export async function POST(
           name: account.name ?? account.id,
           account_type: "meta_ad_account",
           currency: account.currency ?? null,
-          timezone: account.timezone_name ?? null,
+          timezone: canonicalMetaTimezone(account.timezone_name),
           is_active: account.account_status === 1,
-          metadata: { account_status: account.account_status },
+          metadata: {
+            account_status: account.account_status,
+            reported_timezone: account.timezone_name ?? null,
+          },
         })),
         { onConflict: "connection_id,external_id" },
       );

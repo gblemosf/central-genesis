@@ -179,6 +179,10 @@ export function ProjectWorkspace({
   const [metaAccountId, setMetaAccountId] = useState(
     initialCatalog.linkedMetaAccountId ?? "",
   );
+  const [metaAccountIds, setMetaAccountIds] = useState(
+    initialCatalog.linkedMetaAccountIds ??
+      (initialCatalog.linkedMetaAccountId ? [initialCatalog.linkedMetaAccountId] : []),
+  );
   const [operation, setOperation] = useState<"idle" | "linking" | "syncing">("idle");
   const [operationMessage, setOperationMessage] = useState("");
   const googleConnections = initialForms.connections.filter(
@@ -232,6 +236,7 @@ export function ProjectWorkspace({
       products,
       stages,
       linkedMetaAccountId: metaAccountId || null,
+      linkedMetaAccountIds: metaAccountIds,
     },
     analytics,
   );
@@ -613,7 +618,11 @@ export function ProjectWorkspace({
         const response = await fetch(`/api/projects/${project.id}/meta-account`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ providerAccountId: metaAccountId || null }),
+          body: JSON.stringify({
+            providerAccountIds: metaAccountId
+              ? [metaAccountId, ...metaAccountIds.filter((id) => id !== metaAccountId)]
+              : [],
+          }),
         });
         const body = (await response.json().catch(() => null)) as
           | { error?: string }
@@ -633,7 +642,7 @@ export function ProjectWorkspace({
     setOperationMessage(
       demoMode
         ? "Alteracao demonstrativa; a conta Meta nao foi persistida."
-        : "Conta Meta atualizada.",
+        : "Contas Meta atualizadas.",
     );
     startTransition(() => router.refresh());
   }
@@ -852,7 +861,7 @@ export function ProjectWorkspace({
 
       {tab === "overview" && <SummaryPanel project={project} analytics={overviewData ?? analytics}
         rows={overviewRows} ready={Boolean(overviewReady)} error={overviewError} filter={analysisFilter}
-        products={products} catalog={{ ...initialCatalog, products, stages, linkedMetaAccountId: metaAccountId || null }}
+        products={products} catalog={{ ...initialCatalog, products, stages, linkedMetaAccountId: metaAccountId || null, linkedMetaAccountIds: metaAccountIds }}
         forms={initialForms} demoMode={demoMode} onNavigate={setTab} onSyncMeta={syncMeta} syncing={operation !== "idle"} />}
       {operationMessage && <p role="status" className="rounded-xl bg-blue-50 p-4 text-xs">{operationMessage}</p>}
       {tab === "forms" && <div className="space-y-4">
@@ -1579,7 +1588,11 @@ export function ProjectWorkspace({
               <select
                 className="field"
                 value={metaAccountId}
-                onChange={(event) => setMetaAccountId(event.target.value)}
+                onChange={(event) => {
+                  const id = event.target.value;
+                  setMetaAccountId(id);
+                  setMetaAccountIds((current) => id ? [...new Set([...current, id])] : []);
+                }}
               >
                 <option value="">Sem conta vinculada</option>
                 {initialCatalog.metaAccounts.map((account) => (
@@ -1592,6 +1605,29 @@ export function ProjectWorkspace({
                 Fonte automatica de trafego. Se nao houver conta, use o CSV de trafego.
               </span>
             </label>
+            {metaAccountId && (
+              <fieldset className="space-y-3 rounded-xl border border-[var(--line)] p-4 sm:col-span-2">
+                <legend className="px-1 text-xs font-bold">Outras contas Meta deste projeto</legend>
+                <p className="text-xs text-[var(--muted)]">
+                  Os dados de todas as contas selecionadas serao somados no painel. Mantenha aqui as contas anteriores do mesmo projeto.
+                </p>
+                {initialCatalog.metaAccounts.filter((account) => account.id !== metaAccountId).map((account) => (
+                  <label key={account.id} className="flex items-center gap-3 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={metaAccountIds.includes(account.id)}
+                      onChange={(event) => {
+                        const checked = event.target.checked;
+                        setMetaAccountIds((current) => checked
+                          ? [...new Set([...current, account.id])]
+                          : current.filter((id) => id !== account.id));
+                      }}
+                    />
+                    {account.name} ({account.externalId})
+                  </label>
+                ))}
+              </fieldset>
+            )}
           </div>
           <div className="mt-5 flex flex-wrap gap-2">
             <button
@@ -1618,7 +1654,7 @@ export function ProjectWorkspace({
               {operation === "linking" && (
                 <LoaderCircle size={14} className="animate-spin" />
               )}
-              Salvar conta Meta
+              Salvar contas Meta
             </button>
           </div>
           {projectMessage && (

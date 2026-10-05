@@ -10,7 +10,8 @@ beforeEach(() => {
   mocks.connection = { id, provider: "assiny", status: "attention", metadata: {}, revoked_at: null };
   mocks.rpc.mockResolvedValue({ data: { id, provider: "assiny", name: "Assiny preparada", status: "attention" }, error: null });
   const builder = { select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis(), maybeSingle: async () => ({ data: mocks.connection, error: null }) };
-  mocks.requireAdmin.mockResolvedValue({ organizationId: "organization-test", supabase: { rpc: mocks.rpc, from: () => builder } });
+  const products = { select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis(), is: vi.fn().mockReturnThis(), order: async () => ({ data: [], error: null }) };
+  mocks.requireAdmin.mockResolvedValue({ organizationId: "organization-test", supabase: { rpc: mocks.rpc, from: (table: string) => table === "products" ? products : builder } });
 });
 it("generates a private preparation credential without needing an Assiny account", async () => {
   const response = await create(new Request("https://example.invalid/api/connections", { method: "POST", body: JSON.stringify({ name: "Assiny preparada", provider: "assiny" }) }));

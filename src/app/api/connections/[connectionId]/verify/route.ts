@@ -21,7 +21,6 @@ export async function POST(
     }
     if (!connection || connection.revoked_at) throw new ApiError("Conexao nao encontrada.", 404);
 
-    const secret = await readConnectionSecret(connectionId);
     if (connection.provider === "hubla" || connection.provider === "payt" || connection.provider === "assiny") {
       const metadata =
         connection.metadata &&
@@ -54,6 +53,7 @@ export async function POST(
         })),
       });
     }
+    const secret = await readConnectionSecret(connectionId);
     const result = await verifyProviderCredential(
       connection.provider as Provider,
       secret,

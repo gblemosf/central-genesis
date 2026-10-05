@@ -2,6 +2,7 @@ import "server-only";
 import { ApiError, type AdminContext } from "@/lib/api-auth";
 import { dateInTimezone, subtractCalendarDays } from "@/lib/dates";
 import { fetchMetaCollection } from "@/lib/meta-api";
+import { canonicalMetaTimezone } from "@/lib/meta-timezone";
 import { decodeProviderCredentials } from "@/lib/provider-credentials";
 import { readConnectionSecret } from "@/lib/secret-store";
 
@@ -52,7 +53,8 @@ export async function syncProjectMeta(context: Pick<AdminContext, "supabase" | "
     if (accounts.some((account) => account.currency !== "BRL")) {
       throw new ApiError("A Central aceita apenas contas Meta em BRL neste momento.", 422);
     }
-    if (accounts.some((account) => account.timezone !== project.reporting_timezone)) {
+    const projectTimezone = canonicalMetaTimezone(project.reporting_timezone);
+    if (!projectTimezone || accounts.some((account) => canonicalMetaTimezone(account.timezone) !== projectTimezone)) {
       throw new ApiError("O fuso da conta Meta difere do fuso do projeto.", 422);
     }
 

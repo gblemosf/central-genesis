@@ -57,6 +57,16 @@ beforeEach(() => {
 });
 
 describe("Meta account discovery", () => {
+  it("stores the canonical reporting zone while retaining Meta's original alias", async () => {
+    mocks.collection.mockResolvedValue([{ id: "act_alias", timezone_name: "Brazil/East", account_status: 1 }]);
+    expect((await POST(request(), route)).status).toBe(200);
+    expect(mocks.upsert).toHaveBeenCalledWith([
+      expect.objectContaining({
+        timezone: "America/Sao_Paulo",
+        metadata: { account_status: 1, reported_timezone: "Brazil/East" },
+      }),
+    ], expect.anything());
+  });
   it("discovers owned and shared accounts through the token even with an unusable stored system-user ID", async () => {
     const accessible = [
       { id: "act_owned", name: "Owned", account_status: 1 },
