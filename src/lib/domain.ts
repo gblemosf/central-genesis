@@ -44,6 +44,11 @@ export type FunnelStageType = (typeof funnelStageTypes)[number];
 export type ProductSource = "provider" | "manual";
 
 export interface DailyMetric {
+  // Availability describes the recorded source, not reconciliation with the gateway's complete history.
+  revenueAvailable?: boolean;
+  trafficAvailable?: boolean;
+  salesAvailable?: boolean;
+  comparisonAvailable?: boolean;
   date: string;
   investment: number;
   revenue: number;
@@ -55,6 +60,8 @@ export interface DailyMetric {
 }
 
 export interface ProductDailyMetric {
+  revenueAvailable?: boolean;
+  approvedQuantity?: number;
   productId: string;
   stageId: string;
   productName: string;
@@ -122,6 +129,7 @@ export interface ObservedProductSale {
 }
 
 export interface ProjectAnalytics {
+  qualityWarnings?: string[];
   observedSales?: ObservedProductSale[];
   config: ProjectMetricConfig;
   configSaved: boolean;
@@ -145,6 +153,7 @@ export interface ProjectAnalytics {
 }
 
 export interface ProjectSummary {
+  qualityWarnings?: string[];
   id: string;
   legacy?: boolean;
   name: string;

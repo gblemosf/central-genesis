@@ -32,11 +32,29 @@ describe("calculatePerformance", () => {
     });
   });
 
-  it("retorna taxas zeradas quando nao ha denominador", () => {
+  it("não inventa resultado nem taxas quando não há dados ou denominador", () => {
     const result = calculatePerformance([]);
-    expect(result.roas).toBe(0);
-    expect(result.margin).toBe(0);
-    expect(result.cpa).toBe(0);
+    expect(result).toMatchObject({ profit: null, roas: null, margin: null, cpa: null, aov: null, ctr: null });
+  });
+
+  it("preserva zero confirmado e bloqueia derivados de uma base parcial", () => {
+    const row: DailyMetric = { date: "2026-10-05", investment: 100, revenue: 0,
+      impressions: 100, clicks: 0, pageViews: 0, checkouts: 0, coreSales: 0,
+      revenueAvailable: true, trafficAvailable: true, salesAvailable: true };
+    expect(calculatePerformance([row])).toMatchObject({ profit: -100, roas: 0, ctr: 0, cpa: null, aov: null, margin: null });
+    const partial = calculatePerformance([row, { ...row, revenue: 200, revenueAvailable: false, trafficAvailable: false, salesAvailable: false }]);
+    expect(partial).toMatchObject({ revenue: 200, investment: 200, profit: null, roas: null, margin: null, cpa: null, aov: null, ctr: null });
+  });
+
+  it("calcula CTR pelas somas ponderadas e CPA com aquisições aprovadas", () => {
+    const rows: DailyMetric[] = [
+      { date: "2026-10-04", investment: 10, revenue: 0, impressions: 100, clicks: 20, pageViews: 10, checkouts: 2, coreSales: 1 },
+      { date: "2026-10-05", investment: 90, revenue: 300, impressions: 900, clicks: 30, pageViews: 20, checkouts: 3, coreSales: 3 },
+    ];
+    expect(calculatePerformance(rows)).toMatchObject({ ctr: 5, cpa: 25, roas: 3 });
+    expect(calculatePerformance(rows.map((row) => ({ ...row, comparisonAvailable: false })))).toMatchObject({
+      revenue: 300, investment: 100, ctr: 5, profit: null, margin: null, roas: null, cpa: null, aov: null,
+    });
   });
 });
 

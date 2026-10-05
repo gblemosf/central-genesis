@@ -35,6 +35,12 @@ beforeEach(() => {
   mocks.collection.mockImplementation(async (url: URL) => [{ date_start: "2026-10-01", spend: url.pathname.includes("act_new") ? "10.20" : "20.30" }]);
 });
 describe("multiple Meta accounts", () => {
+  it("refuses an incomplete linked-account set instead of saving a partial success", async () => {
+    accounts = accounts.slice(0, 1);
+    await expect(syncProjectMeta(context, "project")).rejects.toMatchObject({ status: 422 });
+    expect(mocks.collection).not.toHaveBeenCalled();
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
   it("keeps each account's daily spend separately and replaces the complete selected period atomically", async () => {
     expect(await syncProjectMeta(context, "project", { since: "2026-10-01", until: "2026-10-01" })).toEqual({ processed: 2 });
     expect(mocks.rpc).toHaveBeenCalledExactlyOnceWith("replace_meta_metrics", expect.objectContaining({

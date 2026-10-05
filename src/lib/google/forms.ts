@@ -195,6 +195,11 @@ function valueMatches(title: string, candidates: string[]) {
   return candidates.some((candidate) => normalized.includes(candidate));
 }
 
+function technicalUtmField(title: string): string | null {
+  const match = /^utm[_ ](source|medium|campaign|content|term|id)$/i.exec(title.trim());
+  return match?.[1]?.toLowerCase() ?? null;
+}
+
 function inferIdentityAndUtm(
   response: GoogleFormResponse,
   questions: NormalizedGoogleQuestion[],
@@ -219,32 +224,8 @@ function inferIdentityAndUtm(
     ) {
       identity.phone ??= value;
     }
-    if (valueMatches(question.title, ["utm source", "utm_source", "origem"])) {
-      utm.source ??= value;
-    }
-    if (
-      valueMatches(question.title, [
-        "utm medium",
-        "utm_medium",
-        "midia",
-        "meio",
-      ])
-    ) {
-      utm.medium ??= value;
-    }
-    if (
-      valueMatches(question.title, ["utm campaign", "utm_campaign", "campanha"])
-    ) {
-      utm.campaign ??= value;
-    }
-    if (valueMatches(question.title, ["utm term", "utm_term", "termo"])) {
-      utm.term ??= value;
-    }
-    if (
-      valueMatches(question.title, ["utm content", "utm_content", "conteudo"])
-    ) {
-      utm.content ??= value;
-    }
+    const utmField = technicalUtmField(question.title);
+    if (utmField) utm[utmField] ??= value;
   }
 
   return { identity, utm };

@@ -3,19 +3,19 @@ import type { DailyMetric, FunnelStage } from "@/lib/domain";
 export interface PerformanceTotals {
   investment: number;
   revenue: number;
-  profit: number;
-  margin: number;
-  roas: number;
-  cpa: number;
-  aov: number;
-  ctr: number;
-  connectRate: number;
-  checkoutRate: number;
+  profit: number | null;
+  margin: number | null;
+  roas: number | null;
+  cpa: number | null;
+  aov: number | null;
+  ctr: number | null;
+  connectRate: number | null;
+  checkoutRate: number | null;
   coreSales: number;
 }
 
 function percentage(part: number, total: number) {
-  return total > 0 ? (part / total) * 100 : 0;
+  return total > 0 ? (part / total) * 100 : null;
 }
 
 export function calculatePerformance(
@@ -44,19 +44,23 @@ export function calculatePerformance(
   );
 
   const totalCost = totals.investment + extraCosts;
-  const profit = totals.revenue - totalCost;
+  const revenueAvailable = rows.length > 0 && rows.every((row) => row.revenueAvailable !== false);
+  const trafficAvailable = rows.length > 0 && rows.every((row) => row.trafficAvailable !== false);
+  const salesAvailable = rows.length > 0 && rows.every((row) => row.salesAvailable !== false);
+  const comparisonAvailable = rows.length > 0 && rows.every((row) => row.comparisonAvailable !== false);
+  const profit = comparisonAvailable && revenueAvailable && trafficAvailable ? totals.revenue - totalCost : null;
 
   return {
     investment: totals.investment,
     revenue: totals.revenue,
     profit,
-    margin: percentage(profit, totals.revenue),
-    roas: totals.investment > 0 ? totals.revenue / totals.investment : 0,
-    cpa: totals.coreSales > 0 ? totals.investment / totals.coreSales : 0,
-    aov: totals.coreSales > 0 ? totals.revenue / totals.coreSales : 0,
-    ctr: percentage(totals.clicks, totals.impressions),
-    connectRate: percentage(totals.pageViews, totals.clicks),
-    checkoutRate: percentage(totals.checkouts, totals.pageViews),
+    margin: profit !== null ? percentage(profit, totals.revenue) : null,
+    roas: comparisonAvailable && revenueAvailable && trafficAvailable && totals.investment > 0 ? totals.revenue / totals.investment : null,
+    cpa: comparisonAvailable && salesAvailable && trafficAvailable && totals.coreSales > 0 ? totals.investment / totals.coreSales : null,
+    aov: comparisonAvailable && revenueAvailable && salesAvailable && totals.coreSales > 0 ? totals.revenue / totals.coreSales : null,
+    ctr: trafficAvailable ? percentage(totals.clicks, totals.impressions) : null,
+    connectRate: trafficAvailable ? percentage(totals.pageViews, totals.clicks) : null,
+    checkoutRate: trafficAvailable ? percentage(totals.checkouts, totals.pageViews) : null,
     coreSales: totals.coreSales,
   };
 }

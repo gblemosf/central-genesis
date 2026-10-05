@@ -3,6 +3,10 @@ import { filterProductMetrics, presetPeriod, validAnalysisPeriod } from "./analy
 import type { ProjectDailyMetric } from "./domain";
 
 describe("analysis filters", () => {
+  it("does not manufacture known zero revenue from an unknown product allocation", () => {
+    const row: ProjectDailyMetric = { date: "2026-10-02", investment: 0, revenue: 0, coreSales: 2, clicks: 0, impressions: 0, pageViews: 0, checkouts: 0, productMetrics: [], salesAvailable: true, revenueAvailable: false };
+    expect(filterProductMetrics([row], ["unidentified"])[0].revenueAvailable).toBe(false);
+  });
   it.each([7, 15, 30, 60])("includes exactly %i calendar days across months", (days) => {
     const period = presetPeriod(String(days), "2026-03-03");
     expect((Date.parse(period.end) - Date.parse(period.start)) / 86_400_000 + 1).toBe(days);

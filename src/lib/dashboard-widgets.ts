@@ -49,10 +49,45 @@ export function matchesSaleProducts(
     )?.id;
   return Boolean(id && filter.productIds.includes(id));
 }
+function saleGroups(sales: SaleRow[]): SaleRow[][] {
+  const transactions = new Map<string, SaleRow[]>();
+  for (const sale of sales) {
+    const key = JSON.stringify([sale.connectionId || sale.provider, sale.transaction || sale.id]);
+    const items = transactions.get(key) ?? [];
+    items.push(sale);
+    transactions.set(key, items);
+  }
+  return [...transactions.values()];
+}
+
+export function paidSaleGroups(sales: SaleRow[]): SaleRow[][] {
+  return saleGroups(sales.filter((row) => row.status === "paid"));
+}
+
+export function saleOrigins(sales: SaleRow[]) {
+  const groups = new Map<string, { label: string[]; sales: SaleRow[] }>();
+  for (const items of saleGroups(sales)) {
+    const paid = items.filter((sale) => sale.status === "paid");
+    const attributionRows = paid.length ? paid : items;
+    const label = (["source", "medium", "campaign", "page"] as const).map((field) => {
+      const values = [...new Set(attributionRows.map((sale) => sale.attribution[field]?.trim()).filter(Boolean))];
+      if (values.length > 1) return field === "source" ? "Origem divergente na mesma compra" : "Divergente na mesma compra";
+      return values[0] || (field === "source" || field === "page" ? "Não identificada" : "");
+    });
+    const key = JSON.stringify(label);
+    const group = groups.get(key) ?? { label, sales: [] };
+    group.sales.push(...items);
+    groups.set(key, group);
+  }
+  return groups;
+}
+
 export function saleSources(sales: SaleRow[]) {
   const groups = new Map<string, number>();
-  for (const sale of sales.filter((row) => row.status === "paid")) {
-    const source = sale.attribution.source || "Sem origem informada";
+  for (const items of paidSaleGroups(sales)) {
+    const sources = [...new Set(items.map((sale) => sale.attribution.source.trim()).filter(Boolean))];
+    const source = sources.length > 1 ? "Origem divergente na mesma compra" :
+      sources[0] || "Sem origem informada";
     groups.set(source, (groups.get(source) ?? 0) + 1);
   }
   return [...groups].sort((a, b) => b[1] - a[1]);

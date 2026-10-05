@@ -11,6 +11,7 @@ import {
 import { dateInTimezone } from "@/lib/dates";
 import type { AnalysisFilter } from "@/lib/analysis-filters";
 import type { ProjectProduct } from "@/lib/domain";
+import { saleOrigins } from "@/lib/dashboard-widgets";
 
 export type OperationView =
   | "sales"
@@ -34,7 +35,7 @@ const statusLabels: Record<string, string> = {
   abandoned: "Abandono",
   failed: "Falha no pagamento",
   expired: "Expirada",
-  recovered: "Recuperada",
+  recovered: "Marcada como recuperada (não conciliada)",
 };
 const pageSize = 50;
 export function money(value: number | null, currency = "BRL") {
@@ -138,7 +139,8 @@ const salesHeaders = [
   "Taxa da plataforma",
   "Líquido após taxa",
   "Recebido pelo produtor",
-  "Página",
+  "Página de entrada",
+  "Checkout",
   "utm_source",
   "utm_medium",
   "utm_campaign",
@@ -165,6 +167,7 @@ function saleCells(sale: SaleRow, exporting = false): ReactNode[] {
     sale.phone,
     ...values,
     sale.attribution.page ?? "Não identificada",
+    sale.attribution.checkoutUrl ?? "Não informado",
     sale.attribution.source,
     sale.attribution.medium,
     sale.attribution.campaign,
@@ -194,7 +197,7 @@ export function ProjectOperationsPanel({
 }) {
   const period = useMemo(() => ({ start: filter.start, end: filter.end }), [filter.start, filter.end]);
   const [query, setQuery] = useState("");
-  const [columns, setColumns] = useState<number[]>([0, 2, 3, 4, 9, 10, 12]);
+  const [columns, setColumns] = useState<number[]>([0, 2, 3, 4, 9, 10, 13]);
   const [status, setStatus] = useState("");
   const [currency, setCurrency] = useState("");
   const [loadedData, setData] = useState<ProjectOperations | null>(null);
@@ -314,19 +317,7 @@ export function ProjectOperationsPanel({
       ...(data?.recovery ?? []).map((row) => row.currency),
     ]),
   );
-  const origins = new Map<string, { label: string[]; sales: SaleRow[] }>();
-  for (const sale of filtered.sales) {
-    const label = [
-      sale.attribution.source || "Não identificada",
-      sale.attribution.medium,
-      sale.attribution.campaign,
-      sale.attribution.page || "Não identificada",
-    ];
-    const key = JSON.stringify(label),
-      group = origins.get(key) ?? { label, sales: [] };
-    group.sales.push(sale);
-    origins.set(key, group);
-  }
+  const origins = saleOrigins(filtered.sales);
   const refunded = new Set(
     filtered.sales
       .filter((sale) => sale.status === "refunded")
@@ -359,7 +350,7 @@ export function ProjectOperationsPanel({
       "Origem",
       "Meio",
       "Campanha",
-      "Página",
+      "Página de entrada",
       "Compras",
       "Bruto",
       "Taxas",
@@ -598,7 +589,7 @@ export function ProjectOperationsPanel({
                   money(summary.refunded, selectedCurrency),
                 ],
                 ["Contatos registrados no período", String(cohort.length)],
-                ["Conversão desses contatos em compradores", conversion],
+                ["Relação entre contatos e compradores registrados", conversion],
               ].map(([label, value]) => (
                 <div
                   className="rounded-2xl border border-[var(--line)] p-4"
@@ -609,6 +600,27 @@ export function ProjectOperationsPanel({
                 </div>
               ))}
             </div>
+          )}
+          {view === "results" && (
+            <p className="text-xs leading-5 text-[var(--muted)]">
+              Proporção dos contatos com primeiro registro no período que também
+              possuem compra registrada nesta seleção. A cobertura do histórico
+              e a identificação por e-mail ou telefone podem alterar essa relação;
+              ela não mede conversão atribuída a anúncio ou formulário.
+            </p>
+          )}
+          {view === "recovery" && (
+            <p className="rounded-xl bg-amber-50 p-4 text-xs leading-5">
+              Compras marcadas como recuperadas (não conciliadas): o status
+              registrado ainda depende da conferência da tentativa anterior e
+              da compra. Ele não comprova recuperação por agente ou mensagem.
+            </p>
+          )}
+          {(view === "sales" || view === "origins") && (
+            <p className="text-xs leading-5 text-[var(--muted)]">
+              Página de entrada e checkout são endereços distintos. A presença
+              da URL de pagamento não comprova qual página levou à compra.
+            </p>
           )}
           {view !== "recovery" && (
             <p className="text-xs leading-5 text-[var(--muted)]">

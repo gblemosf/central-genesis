@@ -20,6 +20,7 @@ import type {
 } from "@/lib/domain";
 import {
   matchesSaleProducts,
+  paidSaleGroups,
   parseWidgetPreference,
   previousAnalysisPeriod,
   saleSources,
@@ -291,18 +292,10 @@ export function ProjectSummary({
     { impressions: 0, clicks: 0, pageViews: 0, checkouts: 0 },
   );
   const hasTraffic =
-    ready &&
-    rows.some(
-      (row) =>
-        row.investment ||
-        row.impressions ||
-        row.clicks ||
-        row.pageViews ||
-        row.checkouts,
-    );
+    ready && rows.length > 0 && rows.every(row => row.trafficAvailable !== false);
   const sources = saleSources(sales),
-    paid = sales.filter((sale) => sale.status === "paid");
-  const noPage = paid.filter((sale) => !sale.attribution.page).length;
+    paid = paidSaleGroups(sales);
+  const noPage = paid.filter((items) => items.every((sale) => !sale.attribution.page)).length;
   const readiness = getProjectReadiness(
     project,
     { ...catalog, products },
@@ -409,8 +402,8 @@ export function ProjectSummary({
               ["Impressões", formatNumber(traffic.impressions)],
               ["Cliques", formatNumber(traffic.clicks)],
               [
-                "CTR",
-                traffic.impressions
+                "CTR de link",
+                traffic.impressions && totals.ctr !== null
                   ? formatPercent(totals.ctr)
                   : "Não calculável",
               ],
@@ -444,8 +437,9 @@ export function ProjectSummary({
             <p
               className={`mt-4 rounded-xl p-3 text-xs ${noPage ? "bg-amber-50 text-amber-950" : "bg-black/5"}`}
             >
-              {noPage} de {paid.length} compra(s) sem página informada. Ausência
-              de UTM não comprova tráfego orgânico.
+              {noPage} de {paid.length} compra(s) sem página de entrada informada.
+              A URL do checkout não identifica a página de entrada. Ausência de
+              UTM não comprova tráfego orgânico.
             </p>
           </>
         ) : (
@@ -462,7 +456,7 @@ export function ProjectSummary({
               items={[
                 ["Tentativas registradas", formatNumber(recovery.length)],
                 [
-                  "Marcadas como recuperadas",
+                  "Compras marcadas como recuperadas (não conciliadas)",
                   formatNumber(
                     recovery.filter((row) => row.status === "recovered").length,
                   ),
@@ -476,8 +470,9 @@ export function ProjectSummary({
               ]}
             />
             <p className="mt-4 text-xs leading-5 text-[var(--muted)]">
-              Tentativas pela última atividade no período. Conversão registrada
-              não comprova uma venda recuperada por agente.
+              Registros pela última atividade no período. A marca de recuperação
+              ainda depende da conferência da tentativa anterior e da compra.
+              Ela não comprova recuperação por agente ou mensagem.
             </p>
           </>
         ) : (
@@ -567,6 +562,7 @@ export function ProjectSummary({
 
   return (
     <div className="space-y-5">
+      {analytics.qualityWarnings?.map(message => <p key={message} className="rounded-xl bg-amber-50 p-4 text-xs leading-5"><strong>Base parcial.</strong> {message} Os valores financeiros abaixo correspondem somente às vendas processadas.</p>)}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-black tracking-tight">

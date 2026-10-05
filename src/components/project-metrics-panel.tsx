@@ -217,7 +217,8 @@ export function ProjectMetricsPanel({
   const csvHasErrors = Boolean(
     inspectingCsv || metricsPreview?.errors.length,
   );
-  const populatedRows = analytics.dailyMetrics.filter(hasMetricData);
+  // Keep empty/unknown days: dropping them would hide gaps in source coverage.
+  const populatedRows = analytics.dailyMetrics;
   const [dailyStart, setDailyStart] = useState(analytics.config.periodStart);
   const [dailyEnd, setDailyEnd] = useState(analytics.config.periodEnd);
   const [dailyAscending, setDailyAscending] = useState(true);
@@ -248,7 +249,7 @@ export function ProjectMetricsPanel({
     .sort((a, b) => dailyAscending
       ? a.date.localeCompare(b.date)
       : b.date.localeCompare(a.date));
-  const hasRevenueMetrics = populatedRows.some((metric) => metric.revenue !== 0);
+  const hasRevenueMetrics = populatedRows.some((metric) => metric.salesAvailable || metric.revenue !== 0);
   const stageById = new Map(stages.map((stage) => [stage.id, stage]));
   const mappedProducts = products
     .filter((product) => product.mappedProjectId === projectId && product.stageId)
@@ -261,7 +262,7 @@ export function ProjectMetricsPanel({
     product.id === filter.productIds![0] && ["core", "front_end", "low_ticket"].includes(stageById.get(product.stageId ?? "")?.type ?? "")) : null;
   const referenceConfig = !config.ticketProductId && selectedReference ? { ...config, ticketProductId: selectedReference.id } : config;
   const resolved = resolveMetricReferences(referenceConfig, mappedProducts, stages, analytics.observedSales ?? [],
-    sourceAnalytics.dailyMetrics, analytics.dataSources.webhookSalesEvents > 0 && !analytics.warning);
+    sourceAnalytics.dailyMetrics, analytics.dataSources.webhookSalesEvents > 0 && !analytics.warning && !analytics.qualityWarnings?.length);
   const effective = resolved.effective;
   const performance = (metric: ProjectAnalytics["dailyMetrics"][number]) => {
     const value = calculateDailyPerformance(metric, config.trafficFeePercent);
@@ -297,6 +298,7 @@ export function ProjectMetricsPanel({
         ...total,
         quantity: total.quantity + product.quantity,
         revenue: total.revenue + product.revenue,
+        revenueAvailable: total.revenueAvailable !== false && product.revenueAvailable !== false,
       }),
       { ...matches[0], quantity: 0, revenue: 0 },
     );
@@ -535,6 +537,8 @@ export function ProjectMetricsPanel({
       {message && <p role="status" className="rounded-xl bg-blue-50 p-4 text-xs">{message}</p>}
       {loadingPeriod && <p role="status" className="flex items-center gap-2 text-sm"><LoaderCircle className="animate-spin" size={16} /> Carregando o período selecionado…</p>}
       {productSubset && <p className="rounded-xl bg-blue-50 p-4 text-xs leading-5">Receitas e vendas refletem os produtos selecionados. Tráfego e custos pertencem ao projeto inteiro; CPA, ROAS, margem e lucro por produto ficam indisponíveis sem divisão dos gastos por produto.</p>}
+      {analytics.qualityWarnings?.map(warning => <p key={warning} className="rounded-xl bg-amber-50 p-4 text-xs leading-5">Base parcial: {warning}</p>)}
+      <p className="rounded-xl bg-amber-50 p-4 text-xs leading-5">Os valores usam eventos recebidos e importados, em BRL. Líquido após taxas e repasse ao produtor são bases diferentes. CPA e vendas/checkouts são relações entre totais do projeto, incluindo vendas orgânicas; não comprovam conversão das mesmas pessoas. Histórico completo dos gateways e custos externos precisam ser conciliados para apurar o resultado final.</p>
       {!demoMode && !readOnly && (loadingPeriod || config.periodStart !== filter.start || config.periodEnd !== filter.end) ?
         <p className="panel rounded-xl p-5 text-sm">{loadingPeriod ? "Aguarde para consultar os resultados atualizados." : "Não foi possível carregar a seleção. Os números do período anterior estão ocultos."}</p> : <>
       {!controlledView && <div className="flex flex-wrap gap-1 rounded-xl border border-[var(--line)] bg-white/45 p-1">
@@ -612,10 +616,10 @@ export function ProjectMetricsPanel({
                 <tr>
                   {[
                     "Dia",
-                    "CTR",
+                    "CTR de link",
                     "Connect rate",
                     "Conv. LP",
-                    "Conv. checkout",
+                    "Vendas / checkouts*",
                     "Vendas",
                     "Faturamento core",
                     "Gasto trafego",
@@ -656,12 +660,12 @@ export function ProjectMetricsPanel({
                     <td className="px-3 py-3">{percentOrUnavailable(row.connectRate)}</td>
                     <td className="px-3 py-3">{percentOrUnavailable(row.landingPageConversion)}</td>
                     <td className="px-3 py-3">{percentOrUnavailable(row.checkoutConversion)}</td>
-                    <td className="px-3 py-3">{formatNumber(row.csvDaily?.core ?? row.coreSales)}</td>
+                    <td className="px-3 py-3">{row.salesAvailable === false ? "N/D" : formatNumber(row.csvDaily?.core ?? row.coreSales)}</td>
                     <td className="px-3 py-3">
                       {row.coreRevenueAvailable ? formatCurrency(row.coreRevenue) : "N/D"}
                     </td>
-                    <td className="px-3 py-3">{formatCurrency(row.investment)}</td>
-                    <td className="px-3 py-3">{formatCurrency(row.finalInvestment)}</td>
+                    <td className="px-3 py-3">{row.trafficAvailable === false ? "N/D" : formatCurrency(row.investment)}</td>
+                    <td className="px-3 py-3">{row.trafficAvailable === false ? "N/D" : formatCurrency(row.finalInvestment)}</td>
                     <td className="px-3 py-3">{ratioOrUnavailable(row.coreRoas)}</td>
                     {orderBumpSlots.flatMap((product, index) => {
                       const bump = orderBumpFor(row, product, index);
@@ -673,13 +677,13 @@ export function ProjectMetricsPanel({
                           key={`${key}-sales`}
                           className="px-3 py-3"
                         >
-                          {formatNumber(bump?.quantity ?? 0)}
+                          {row.salesAvailable === false ? "N/D" : formatNumber(bump?.quantity ?? 0)}
                         </td>,
                         <td
                           key={`${key}-revenue`}
                           className="px-3 py-3"
                         >
-                          {(bump?.quantity ?? 0) > 0 && (bump?.revenue ?? 0) === 0
+                          {bump?.revenueAvailable === false || row.salesAvailable === false
                             ? "N/D"
                             : formatCurrency(bump?.revenue ?? 0)}
                         </td>,
@@ -730,12 +734,12 @@ export function ProjectMetricsPanel({
         <div className="space-y-4">
           <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
             {[
-              ["Receita registrada", formatCurrency(financial.revenue)],
-              ["Custo total", formatCurrency(financial.totalCost)],
-              ["Resultado com custos registrados", productSubset ? "N/D" : formatCurrency(financial.profit)],
-              ["Margem", productSubset ? "N/D" : formatPercent(financial.margin)],
-              ["ROAS de midia", productSubset || financial.finalTrafficInvestment === 0 ? "N/D" : `${financial.roas.toFixed(2)}x`],
-              ["ROI operacional", productSubset || financial.totalCost === 0 ? "N/D" : `${financial.roi.toFixed(2)}x`],
+              ["Líquido registrado após taxas", aggregate.revenueAvailable === false ? "N/D" : formatCurrency(financial.revenue)],
+              ["Custos registrados", aggregate.trafficAvailable === false ? "N/D" : formatCurrency(financial.totalCost)],
+              ["Resultado com custos registrados", productSubset || financial.profit === null ? "N/D" : formatCurrency(financial.profit)],
+              ["Margem registrada", productSubset || financial.margin === null ? "N/D" : formatPercent(financial.margin)],
+              ["ROAS líquido de mídia", productSubset || financial.roas === null ? "N/D" : `${financial.roas.toFixed(2)}x`],
+              ["ROI com custos registrados", productSubset || financial.roi === null ? "N/D" : `${financial.roi.toFixed(2)}x`],
             ].map(([label, value]) => (
               <article key={label} className="panel rounded-[20px] p-5">
                 <p className="text-[9px] font-bold uppercase tracking-wider text-[var(--muted)]">
@@ -762,7 +766,7 @@ export function ProjectMetricsPanel({
                       {formatNumber(product.quantity)} venda(s)
                     </span>
                     <span className="font-black">
-                      {product.revenue !== 0 ? formatCurrency(product.revenue) : "N/D"}
+                      {product.revenueAvailable !== false ? formatCurrency(product.revenue) : "N/D"}
                     </span>
                   </div>
                 ))}
@@ -773,10 +777,10 @@ export function ProjectMetricsPanel({
                   </p>
                 )}
                 {productTotals.some(
-                  (product) => product.quantity !== 0 && product.revenue === 0,
+                  (product) => product.revenueAvailable === false,
                 ) && (
                   <p className="rounded-xl bg-blue-50 px-4 py-3 text-[10px] leading-4 text-blue-950">
-                    N/D indica quantidade vinda do CSV sem receita individual por produto.
+                    N/D indica ausência de líquido após taxas comprovado por produto. Totais da fatura não são divididos por estimativa.
                   </p>
                 )}
               </div>
@@ -804,7 +808,7 @@ export function ProjectMetricsPanel({
                   Resultado da empresa ({decimalFormatter.format(config.companySharePercent)}%)
                 </p>
                 <p className="mt-2 text-2xl font-black">
-                  {productSubset || config.companySharePercent === 0 ? "Participação não calculada" : formatCurrency(financial.companyResult)}
+                  {productSubset || config.companySharePercent === 0 || financial.companyResult === null ? "Participação não calculada" : formatCurrency(financial.companyResult)}
                 </p>
               </div>
             </article>
@@ -812,16 +816,16 @@ export function ProjectMetricsPanel({
 
           <section className="grid gap-3 sm:grid-cols-3">
             {[
-              ["Faturado ingressos/core", ticketTotal?.revenue],
-              ["Faturado formacao", formationTotal?.revenue],
-              ["Faturado downsell", downsellTotal?.revenue],
+              ["Líquido ingressos/core", ticketTotal?.revenueAvailable === false ? null : ticketTotal?.revenue],
+              ["Líquido formação", formationTotal?.revenueAvailable === false ? null : formationTotal?.revenue],
+              ["Líquido downsell", downsellTotal?.revenueAvailable === false ? null : downsellTotal?.revenue],
             ].map(([label, value]) => (
               <article key={label as string} className="panel rounded-[20px] p-5">
                 <p className="text-[9px] font-bold uppercase tracking-wider text-[var(--muted)]">
                   {label}
                 </p>
                 <p className="mt-3 text-xl font-black">
-                  {typeof value === "number" && value !== 0
+                  {typeof value === "number"
                     ? formatCurrency(value)
                     : "N/D"}
                 </p>
@@ -874,8 +878,8 @@ export function ProjectMetricsPanel({
                 </h2>
                 <p className="mt-2 max-w-2xl text-xs leading-5 text-[var(--muted)]">
                   Os registros sao vinculados automaticamente a este projeto. Datas ja
-                  existentes sao atualizadas, sem duplicar linhas. Em uma data importada,
-                  os campos agregados daquele arquivo passam a ter prioridade.
+                  existentes são atualizadas, sem duplicar linhas. Eventos de vendas e dados
+                  da Meta têm prioridade quando disponíveis na mesma data.
                 </p>
               </div>
             </div>
@@ -884,7 +888,7 @@ export function ProjectMetricsPanel({
               {[
                 ["1", "Escolha o arquivo", "Envie uma linha combinada por dia medido."],
                 ["2", "Validacao automatica", "Datas, colunas e numeros sao conferidos antes de salvar."],
-                ["3", "Calculo no painel", "Taxas e valores financeiros sao derivados das premissas."],
+                ["3", "Conferência no painel", "Contagens do CSV não se tornam receita estimada. O líquido depende dos valores informados pelos gateways."],
               ].map(([number, title, description]) => (
                 <div key={number} className="rounded-2xl bg-black/[0.035] p-4">
                   <span className="grid size-6 place-items-center rounded-full bg-[var(--ink)] text-[10px] font-black text-white">
@@ -926,8 +930,8 @@ export function ProjectMetricsPanel({
 
             <div className="mt-4 rounded-xl bg-blue-50 px-4 py-3 text-[11px] leading-5 text-blue-950">
               <strong>Como a atualizacao funciona:</strong> somente as datas presentes no
-              arquivo sao atualizadas; as demais permanecem. Faturamento core, faturamento
-              dos tres order bumps, CPA, ARPU e ROAS sao recalculados no painel.
+              arquivo são atualizadas; as demais permanecem. Valores por produto, receita,
+              ARPU e ROAS ficam indisponíveis quando o arquivo contém apenas quantidades.
             </div>
 
             {(readOnly || demoMode) && (
@@ -1012,7 +1016,7 @@ export function ProjectMetricsPanel({
                       ["Comparecimento", decimalFormatter.format(values.attendance)],
                       ["Vendas formacao", decimalFormatter.format(values.formationSales)],
                       ["Lucro projetado", formatCurrency(values.profit)],
-                      ["ROAS projetado", `${values.roas.toFixed(2)}x`],
+                      ["ROAS projetado", values.roas === null ? "N/D" : `${values.roas.toFixed(2)}x`],
                     ].map(([itemLabel, value]) => (
                       <div key={itemLabel} className="border-b border-[var(--line)] pb-3 text-xs">
                         <p className="text-[var(--muted)]">{itemLabel}</p>

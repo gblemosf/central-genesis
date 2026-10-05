@@ -5,6 +5,7 @@ import {
   text,
   type SaleAttribution,
 } from "@/lib/sales-attribution";
+import { financialFacts } from "@/lib/financial-facts";
 
 export interface SaleRow {
   catalogProductId?: string;
@@ -82,23 +83,14 @@ function amount(value: unknown): number | null {
 
 export function saleFromRecord(row: Record<string, unknown>): SaleRow {
   const payload = record(row.payload);
-  const financial = record(payload.financial);
+  const facts = financialFacts(row);
   const contact = { ...record(payload.contact), ...relation(row.contacts) };
   const connection = relation(row.integration_connections);
   const item = relation(row.sales_event_items);
   const productId = text(
     payload.product_external_id || record(payload.product).id,
   );
-  const gross = amount(row.gross_amount) ?? 0;
   const isRefund = row.event_type === "PURCHASE_REFUNDED";
-  const sign = isRefund ? -1 : 1;
-  const fee = amount(financial.platform_fee);
-  const source = text(financial.payout_source || payload.net_amount_source);
-  const payout =
-    amount(financial.payout) ??
-    (["producer_commission", "seller_receiver"].includes(source)
-      ? amount(row.net_amount)
-      : null);
   return {
     id: text(row.id),
     catalogProductId: text(item.product_id || row.product_id),
@@ -121,11 +113,11 @@ export function saleFromRecord(row: Record<string, unknown>): SaleRow {
     email: text(contact.email),
     phone: text(contact.phone),
     currency: text(row.currency) || "BRL",
-    gross: sign * Math.abs(gross),
-    fee: fee === null ? null : sign * Math.abs(fee),
-    afterFees: fee === null ? null : sign * (Math.abs(gross) - Math.abs(fee)),
-    payout: payout === null ? null : sign * Math.abs(payout),
-    payoutSource: source,
+    gross: facts.gross ?? 0,
+    fee: facts.fee,
+    afterFees: facts.afterFees,
+    payout: facts.payout,
+    payoutSource: facts.payoutSource,
     orderBump:
       payload.is_order_bump === true ||
       item.stage_type_snapshot === "order_bump",
@@ -136,7 +128,10 @@ export function saleFromRecord(row: Record<string, unknown>): SaleRow {
         record(payload.offer).code ||
         record(payload.offer).id,
     ),
-    attribution: saleAttribution(payload.attribution, productId),
+    attribution: saleAttribution({
+      ...record(payload.attribution),
+      checkout_url: payload.checkout_url ?? record(payload.attribution).checkout_url,
+    }, productId),
   };
 }
 

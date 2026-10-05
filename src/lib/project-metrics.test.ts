@@ -52,9 +52,9 @@ describe("project metrics", () => {
     expect(result.finalInvestment).toBeCloseTo(339.57, 2);
     expect(result.coreRevenue).toBe(64.88);
     expect(result.trackedRevenue).toBe(97.32);
-    expect(result.coreRoas).toBeCloseTo(0.19, 2);
-    expect(result.generalRoas).toBeCloseTo(0.29, 2);
-    expect(result.cpa).toBeCloseTo(84.89, 2);
+    expect(result.coreRoas).toBeCloseTo(64.88 / 298.26);
+    expect(result.generalRoas).toBeCloseTo(97.32 / 298.26);
+    expect(result.cpa).toBeCloseTo(298.26 / 4);
     expect(result.arpu).toBeCloseTo(24.33, 2);
     expect(result.checkoutConversion).toBeCloseTo(75, 2);
   });
@@ -89,7 +89,7 @@ describe("project metrics", () => {
     expect(result.formationSales).toBeCloseTo(24.84, 2);
     expect(result.formationRevenue).toBeCloseTo(23_216.74, 2);
     expect(result.plannedCost).toBeCloseTo(7_969.5, 2);
-    expect(result.roas).toBeCloseTo(3.26, 2);
+    expect(result.roas).toBeCloseTo(3.71, 2);
   });
 
   it("marca divisoes impossiveis como indisponiveis", () => {
@@ -134,5 +134,57 @@ describe("project metrics", () => {
       ob2: 1,
       ob3: 0,
     });
+  });
+
+  it("propaga dados incompletos inclusive em dias zerados", () => {
+    const absent: ProjectDailyMetric = { ...dailyMetric, revenue: 0, investment: 0, coreSales: 0,
+      productMetrics: [], revenueAvailable: false, trafficAvailable: false, salesAvailable: false };
+    const aggregate = aggregateProjectDailyMetrics([dailyMetric, absent]);
+    expect(aggregate).toMatchObject({ revenueAvailable: false, trafficAvailable: false, salesAvailable: false });
+    expect(calculateDailyPerformance(aggregate, 10)).toMatchObject({ cpa: null, arpu: null, coreRoas: null, generalRoas: null, ctr: null, checkoutConversion: null });
+    expect(calculateFinancialSummary([dailyMetric, absent], defaultProjectMetricConfig("2026-10-05")))
+      .toMatchObject({ profit: null, margin: null, roas: null, roi: null, companyResult: null });
+    expect(calculateFinancialSummary([], defaultProjectMetricConfig("2026-10-05")))
+      .toMatchObject({ profit: null, margin: null, roas: null, roi: null, companyResult: null });
+  });
+
+  it("não confunde líquido zero conhecido com receita ausente, nem substitui aquisições por saldo de produtos", () => {
+    const row: ProjectDailyMetric = { ...dailyMetric, coreSales: 2, revenue: 0,
+      revenueAvailable: true, trafficAvailable: true, salesAvailable: true,
+      productMetrics: [{ ...dailyMetric.productMetrics[0], quantity: -5, approvedQuantity: 2, revenue: 0, revenueAvailable: true }] };
+    expect(calculateDailyPerformance(row, 15)).toMatchObject({ coreSales: 2, trackedRevenueAvailable: true, coreRevenueAvailable: true, arpu: 0, generalRoas: 0 });
+    expect(calculateDailyPerformance(row, 15).cpa).toBe(dailyMetric.investment / 2);
+    const productMissing = { ...row, productMetrics: [{ ...row.productMetrics[0], revenueAvailable: false }] };
+    expect(calculateDailyPerformance(productMissing, 0).coreRoas).toBeNull();
+  });
+
+  it("agrega unidades aprovadas e preserva a indisponibilidade de cada produto", () => {
+    const first = { ...dailyMetric, productMetrics: [{ ...dailyMetric.productMetrics[0], quantity: 2, approvedQuantity: 2, revenueAvailable: true }] };
+    const refund = { ...dailyMetric, coreSales: 0, productMetrics: [{ ...dailyMetric.productMetrics[0], quantity: -1, approvedQuantity: 0, revenueAvailable: false }] };
+    const [product] = aggregateProjectDailyMetrics([first, refund]).productMetrics;
+    expect(product).toMatchObject({ quantity: 1, approvedQuantity: 2, revenueAvailable: false });
+    expect(aggregateProjectDailyMetrics([])).toMatchObject({ revenueAvailable: false, trafficAvailable: false, salesAvailable: false });
+  });
+
+  it("cobra taxa somente sobre mídia e trata API como custo operacional da projeção", () => {
+    const config = { ...defaultProjectMetricConfig("2026-10-05"), ticketBudget: 100, apiBudget: 50, trafficFeePercent: 10 };
+    const result = calculateProjectionScenario(50, config, 100, 0);
+    expect(result.ticketSales).toBe(2);
+    expect(result.finalMediaInvestment).toBeCloseTo(110);
+    expect(result.plannedCost).toBeCloseTo(160);
+    expect(result.profit).toBeCloseTo(40);
+    expect(result.roas).toBe(2);
+    expect(calculateProjectionScenario(50, { ...config, ticketBudget: 0 }, 100, 0).roas).toBeNull();
+  });
+
+  it("oculta cruzamentos financeiros quando há recebimentos pendentes sem ocultar o tráfego observado", () => {
+    const pending = { ...dailyMetric, comparisonAvailable: false };
+    const aggregate = aggregateProjectDailyMetrics([dailyMetric, pending]);
+    expect(aggregate.comparisonAvailable).toBe(false);
+    expect(calculateDailyPerformance(aggregate, 10)).toMatchObject({
+      ctr: 1.47, cpa: null, arpu: null, coreRoas: null, generalRoas: null, checkoutConversion: null,
+    });
+    expect(calculateFinancialSummary([dailyMetric, pending], defaultProjectMetricConfig("2026-10-05")))
+      .toMatchObject({ profit: null, margin: null, roas: null, roi: null, companyResult: null });
   });
 });

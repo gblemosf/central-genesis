@@ -31,8 +31,11 @@ export function filterProductMetrics(rows: ProjectDailyMetric[], ids: string[] |
     const products = row.productMetrics.filter((product) => ids.includes(product.productId));
     return { ...row, productMetrics: products, csvDaily: undefined,
       revenue: products.reduce((sum, product) => sum + product.revenue, 0),
+      revenueAvailable: row.salesAvailable !== false && (products.length > 0
+        ? products.every(product => product.revenueAvailable !== false)
+        : row.revenueAvailable !== false),
       coreSales: products.filter((product) => ["core", "front_end", "low_ticket"].includes(product.stageType))
-        .reduce((sum, product) => sum + product.quantity, 0),
+        .reduce((sum, product) => sum + (product.approvedQuantity ?? product.quantity), 0),
     };
   });
 }

@@ -14,6 +14,7 @@ import { useRouter } from "next/navigation";
 import { startTransition, useState } from "react";
 import type { ProjectSummary } from "@/lib/domain";
 import { calculatePerformance } from "@/lib/metrics";
+import { overviewDataAvailability } from "@/lib/overview";
 import { formatCurrency, formatPercent } from "@/lib/utils";
 
 const statusLabels = {
@@ -111,6 +112,8 @@ export function ProjectsList({
         </p>
       )}
 
+      <p className="text-xs leading-5 text-[var(--muted)]">Indicadores dos registros recebidos ou importados no período carregado. O líquido após taxas é anterior à divisão entre participantes; o ROAS líquido compara esse valor com a mídia sincronizada e inclui vendas orgânicas. Histórico ainda não reconciliado integralmente com os gateways.</p>
+
       {projects.length === 0 ? (
         <section className="panel rounded-[24px] px-6 py-14 text-center">
           <p className="text-sm font-black">Nenhum projeto na carteira</p>
@@ -122,12 +125,10 @@ export function ProjectsList({
         <section className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
           {projects.map((project, index) => {
             const totals = calculatePerformance(project.dailyMetrics);
-            const progress = Math.min(
-              project.monthlyTarget > 0
-                ? (totals.revenue / project.monthlyTarget) * 100
-                : 0,
-              100,
-            );
+            const available = overviewDataAvailability(project.dailyMetrics);
+            const progress = available.revenue && project.monthlyTarget > 0
+              ? Math.max(0, Math.min((totals.revenue / project.monthlyTarget) * 100, 100))
+              : null;
             const menuOpen = openMenuId === project.id;
 
             return (
@@ -191,29 +192,29 @@ export function ProjectsList({
                 <div className="mb-6 grid grid-cols-2 gap-3">
                   <div>
                     <p className="text-[9px] font-bold uppercase tracking-wider text-[var(--muted)]">
-                      Faturamento
+                      Líquido registrado após taxas
                     </p>
-                    <p className="mt-1 text-lg font-black">{formatCurrency(totals.revenue)}</p>
+                    <p className="mt-1 text-lg font-black">{available.revenue ? formatCurrency(totals.revenue) : "Indisponível"}</p>
                   </div>
                   <div>
                     <p className="text-[9px] font-bold uppercase tracking-wider text-[var(--muted)]">
-                      ROAS
+                      ROAS líquido registrado
                     </p>
-                    <p className="mt-1 text-lg font-black">{totals.roas.toFixed(2)}x</p>
+                    <p className="mt-1 text-lg font-black">{available.revenue && available.traffic && totals.investment > 0 && totals.roas !== null ? `${totals.roas.toFixed(2)}x` : "Indisponível"}</p>
                   </div>
                 </div>
 
                 <div className="mb-5">
                   <div className="mb-2 flex justify-between text-[10px] font-semibold text-[var(--muted)]">
                     <span>Meta mensal</span>
-                    <span>{formatPercent(progress, 0)}</span>
+                    <span>{progress !== null ? formatPercent(progress, 0) : project.monthlyTarget > 0 ? "Dados indisponíveis" : "Não definida"}</span>
                   </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-black/[0.055]">
+                  {progress !== null && <div className="h-2 overflow-hidden rounded-full bg-black/[0.055]">
                     <div
                       className="h-full rounded-full transition-all"
                       style={{ width: `${progress}%`, background: project.color }}
                     />
-                  </div>
+                  </div>}
                 </div>
 
                 <div className="flex items-center justify-between border-t border-[var(--line)] pt-4">

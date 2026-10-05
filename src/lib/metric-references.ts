@@ -1,38 +1,31 @@
 import type { AutomaticMetricField, ObservedProductSale, ProjectDailyMetric, ProjectFunnelStage, ProjectMetricConfig, ProjectProduct } from "@/lib/domain";
-import { record } from "@/lib/sales-attribution";
+import { itemFinancialFacts, type FinancialItemRecord } from "@/lib/financial-facts";
 
 export const automaticMetricFields: AutomaticMetricField[] = [
   "baseCpa", "ticketNetPrice", "formationNetPrice", "orderBump1NetPrice",
   "orderBump2NetPrice", "orderBump3NetPrice", "historicalTicketSales", "historicalFormationSales",
 ];
 
-function amount(value: unknown): number | null {
-  return value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value))
-    ? Number(value) : null;
-}
-
 export function observedSaleFromEvent(event: {
   currency?: string;
   event_type: string;
   payload?: unknown;
+  gross_amount?: number | string | null;
   net_amount?: number | string | null;
-  sales_event_items: { product_id: string | null; quantity: number | null }[] | null;
+  sales_event_items: (FinancialItemRecord & { product_id: string | null; quantity: number | null })[] | null;
 }, date: string): ObservedProductSale[] {
-  if (event.currency !== "BRL") return [];
+  if (event.currency !== "BRL" || !["PURCHASE_APPROVED", "PURCHASE_COMPLETED", "PURCHASE_REFUNDED", "PURCHASE_CHARGEBACK"].includes(event.event_type)) return [];
   const items = event.sales_event_items ?? [];
-  const payload = record(event.payload), financial = record(payload.financial);
-  const source = financial.payout_source || payload.net_amount_source;
-  const payout = amount(financial.payout) ??
-    (["producer_commission", "seller_receiver"].includes(String(source)) ? amount(event.net_amount) : null);
-  // A missing fee is not zero; an unallocated multi-product total is not a unit price.
-  const afterFees = amount(financial.net_after_fees) ??
-    (source === "gross_minus_hotmart_fee" ? amount(event.net_amount) : null);
-  return items.flatMap((item) => item.product_id && (item.quantity ?? 0) > 0 ? [{
-    date, productId: item.product_id, quantity: item.quantity!,
-    refunded: event.event_type === "PURCHASE_REFUNDED",
-    payout: items.length === 1 ? payout : null,
-    afterFees: items.length === 1 ? afterFees : null,
-  }] : []);
+  return items.flatMap((item) => {
+    if (!item.product_id || !Number.isFinite(item.quantity) || (item.quantity ?? 0) <= 0) return [];
+    const financial = itemFinancialFacts(event, item, items);
+    return [{
+      date, productId: item.product_id, quantity: item.quantity!,
+      refunded: ["PURCHASE_REFUNDED", "PURCHASE_CHARGEBACK"].includes(event.event_type),
+      payout: financial.payout,
+      afterFees: financial.afterFees,
+    }];
+  });
 }
 
 export function usesAutomaticMetric(config: ProjectMetricConfig, field: AutomaticMetricField) {
@@ -70,35 +63,40 @@ export function resolveMetricReferences(
   const missing = (id: string | null) => id ? "Sem vendas com valor líquido informado no período." : "Selecione o produto correspondente; o funil não define um único produto.";
   const price = (id: string | null): MetricReference => {
     const paid = forProduct(id).filter((sale) => !sale.refunded);
-    // Do not mix producer payout and post-fee revenue in one average.
-    const source = paid.some((sale) => sale.payout !== null) ? "payout" : "afterFees";
-    const known = paid.filter((sale) => sale[source] !== null);
-    const units = known.reduce((total, sale) => total + sale.quantity, 0);
-    const allUnits = paid.reduce((total, sale) => total + sale.quantity, 0);
-    return units > 0 ? {
-      value: known.reduce((total, sale) => total + sale[source]!, 0) / units,
-      detail: `Média de ${units} de ${allUnits} unidade(s) aprovada(s), ${source === "payout" ? "repasse ao produtor" : "após taxas da plataforma"}.`,
+    // Every product in a scenario uses the same base. Neither a payout nor
+    // an average of only the known transactions represents all recorded sales.
+    const known = paid.filter((sale) => sale.afterFees !== null && Number.isFinite(sale.afterFees) && sale.afterFees >= 0);
+    if (hasSalesSource && paid.length > known.length) return {
+      value: null,
+      detail: `${paid.length - known.length} venda(s) sem líquido após taxas válido. A média aguarda todos os valores registrados.`,
+    };
+    const units = paid.reduce((total, sale) => total + sale.quantity, 0);
+    return hasSalesSource && units > 0 ? {
+      value: known.reduce((total, sale) => total + sale.afterFees!, 0) / units,
+      detail: `Média de ${units} unidade(s) aprovada(s), após taxas da plataforma e antes da divisão entre participantes.`,
     } : { value: null, detail: missing(id) };
   };
   const count = (id: string | null): MetricReference => ({
-    value: id && hasSalesSource ? Math.max(0, forProduct(id).reduce((sum, sale) =>
-      sum + sale.quantity * (sale.refunded ? -1 : 1), 0)) : null,
-    detail: id ? "Unidades aprovadas menos estornos registrados no período selecionado." : missing(id),
+    value: id && hasSalesSource ? forProduct(id).filter((sale) => !sale.refunded)
+      .reduce((sum, sale) => sum + sale.quantity, 0) : null,
+    detail: id ? "Unidades aprovadas registradas no período. Reembolsos não são novas aquisições negativas." : missing(id),
   });
   const ticketCount = count(ticketId);
-  const spend = daily.filter((row) => row.date >= config.periodStart && row.date <= config.periodEnd)
-    .reduce((total, row) => total + row.investment, 0) * (1 + config.trafficFeePercent / 100);
+  const periodDaily = daily.filter((row) => row.date >= config.periodStart && row.date <= config.periodEnd);
+  const spend = periodDaily.reduce((total, row) => total + row.investment, 0);
+  const cpaSourcesAvailable = periodDaily.length > 0 && periodDaily.every((row) =>
+    row.trafficAvailable !== false && row.salesAvailable !== false && row.comparisonAvailable !== false);
   const coreIds = new Set([
     ...candidates(["core", "front_end", "low_ticket"]).map((product) => product.id),
-    ...daily.flatMap((row) => row.productMetrics.filter((product) =>
-      ["core", "front_end", "low_ticket"].includes(product.stageType) && product.quantity > 0).map((product) => product.productId)),
+    ...periodDaily.flatMap((row) => row.productMetrics.filter((product) =>
+      ["core", "front_end", "low_ticket"].includes(product.stageType) && (product.approvedQuantity ?? product.quantity) > 0).map((product) => product.productId)),
   ]);
-  const cpaAvailable = ticketId && coreIds.size === 1 && coreIds.has(ticketId) && spend > 0 && (ticketCount.value ?? 0) > 0;
+  const cpaAvailable = cpaSourcesAvailable && ticketId && coreIds.size === 1 && coreIds.has(ticketId) && (ticketCount.value ?? 0) > 0;
   const references: Record<AutomaticMetricField, MetricReference> = {
     baseCpa: {
       value: cpaAvailable ? spend / ticketCount.value! : null,
       detail: coreIds.size > 1 ? "A conta atende vários produtos. Não há gasto por produto para calcular este CPA." :
-        "Investimento registrado com taxa de tráfego ÷ vendas do produto. Inclui vendas orgânicas; não é o CPA atribuído pela Meta.",
+        "Investimento registrado em mídia ÷ unidades aprovadas do produto. Inclui vendas orgânicas; não é o CPA atribuído pela Meta. Taxas externas entram somente nos custos.",
     },
     ticketNetPrice: price(ticketId), formationNetPrice: price(formationId),
     orderBump1NetPrice: price(bumps[0]?.id ?? null),

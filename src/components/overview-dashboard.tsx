@@ -34,6 +34,7 @@ import { calculatePerformance } from "@/lib/metrics";
 import {
   buildOverviewDailySeries,
   connectionOperationalSummary,
+  overviewDataAvailability,
 } from "@/lib/overview";
 import {
   cn,
@@ -74,42 +75,56 @@ export function OverviewDashboard({
     selectedProject === "all"
       ? activeProjects
       : activeProjects.filter((project) => project.id === selectedProject);
-  const rows = visibleProjects.flatMap((project) => project.dailyMetrics).filter((row) => row.date >= period.start && row.date <= period.end);
+  const projectPeriods = visibleProjects.map(project => {
+    const rows = project.dailyMetrics.filter(row => row.date >= period.start && row.date <= period.end);
+    return { project, rows, available: overviewDataAvailability(rows) };
+  });
+  const rows = projectPeriods.flatMap(project => project.rows);
   const totals = calculatePerformance(rows);
-  const byDate = buildOverviewDailySeries(rows, reportingDate, period.start);
-  const hasSales = rows.some((row) => row.revenue || row.coreSales);
-  const hasTraffic = rows.some((row) => row.investment || row.impressions || row.clicks);
-  const complete = visibleProjects.length > 0 && visibleProjects.every((project) => {
-    const selectedRows = project.dailyMetrics.filter((row) => row.date >= period.start && row.date <= period.end);
-    return selectedRows.some((row) => row.revenue || row.coreSales) && selectedRows.some((row) => row.investment || row.impressions || row.clicks);
+  const byDate = buildOverviewDailySeries(rows, reportingDate, period.start, projectPeriods.map(project => project.rows));
+  const revenueAvailable = projectPeriods.length > 0 && projectPeriods.every(project => project.available.revenue);
+  const trafficAvailable = projectPeriods.length > 0 && projectPeriods.every(project => project.available.traffic);
+  const salesAvailable = projectPeriods.length > 0 && projectPeriods.every(project => project.available.sales);
+  const complete = revenueAvailable && trafficAvailable;
+  const missingSources = projectPeriods.flatMap(({ project, available }) => {
+    const missing = [
+      !available.revenue && "líquido após taxas",
+      !available.traffic && "tráfego",
+      !available.sales && "quantidade de vendas",
+    ].filter(Boolean);
+    return missing.length ? [{ id: project.id, name: project.name, missing: missing.join(", ") }] : [];
   });
 
   const kpis = [
     {
-      label: "Receita registrada",
-      value: hasSales ? formatCurrency(totals.revenue) : "Sem dados",
-      hint: hasSales ? `${formatNumber(totals.coreSales)} vendas do produto de entrada` : "Confira as fontes dos projetos",
+      label: "Líquido registrado após taxas",
+      value: revenueAvailable ? formatCurrency(totals.revenue) : "Indisponível",
+      hint: visibleProjects.some(project => project.qualityWarnings?.length) ? "Base parcial: recebimentos pendentes abaixo" : salesAvailable ? `${formatNumber(totals.coreSales)} vendas registradas do produto de entrada` : "Quantidade de vendas indisponível",
       icon: CircleDollarSign,
       color: "var(--mint)",
     },
     {
       label: "Investimento em mídia",
-      value: hasTraffic ? formatCurrency(totals.investment) : "Sem dados",
-      hint: hasTraffic ? `${formatPercent(totals.ctr)} CTR consolidado` : "Nenhum tráfego registrado no período",
+      value: trafficAvailable ? formatCurrency(totals.investment) : "Indisponível",
+      hint: trafficAvailable
+        ? totals.ctr !== null ? `${formatPercent(totals.ctr)} CTR consolidado` : "Sem impressões para calcular CTR"
+        : "Tráfego incompleto no período",
       icon: Radar,
       color: "var(--coral)",
     },
     {
       label: "Saldo após mídia",
-      value: complete ? formatCurrency(totals.profit) : "Indisponível",
-      hint: complete ? "Receita registrada menos mídia; sem custos externos" : "Faltam vendas ou tráfego em algum projeto",
+      value: complete && totals.profit !== null ? formatCurrency(totals.profit) : "Indisponível",
+      hint: complete ? "Líquido após taxas menos mídia; não representa lucro" : "Confira os projetos com dados indisponíveis abaixo",
       icon: BadgeDollarSign,
-      color: totals.profit >= 0 ? "var(--signal)" : "var(--coral)",
+      color: totals.profit !== null && totals.profit >= 0 ? "var(--signal)" : "var(--coral)",
     },
     {
-      label: "ROAS registrado",
-      value: complete && totals.investment > 0 ? `${totals.roas.toFixed(2)}x` : "Indisponível",
-      hint: complete && totals.coreSales > 0 ? `CPA de entrada ${formatCurrency(totals.cpa)}` : "Depende de receita e investimento comparáveis",
+      label: "ROAS líquido registrado",
+      value: complete && totals.investment > 0 && totals.roas !== null ? `${totals.roas.toFixed(2)}x` : "Indisponível",
+      hint: trafficAvailable && salesAvailable && totals.coreSales > 0 && totals.cpa !== null
+        ? `Mídia por venda de entrada: ${formatCurrency(totals.cpa)} · inclui orgânicas`
+        : "Depende de líquido e investimento disponíveis",
       icon: TrendingUp,
       color: "var(--violet)",
     },
@@ -161,6 +176,9 @@ export function OverviewDashboard({
             "Modo demonstracao ativo. Configure o Supabase para visualizar os dados reais."}
         </div>
       )}
+      {visibleProjects.flatMap(project => (project.qualityWarnings ?? []).map(message => (
+        <p key={`${project.id}:${message}`} className="rounded-xl bg-amber-50 p-4 text-xs leading-5"><strong>{project.name} — base parcial.</strong> {message} Saldo e ROAS dependem dessa conciliação.</p>
+      )))}
 
       <section className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
         {kpis.map((kpi, index) => {
@@ -192,20 +210,30 @@ export function OverviewDashboard({
         })}
       </section>
 
-      <p className="text-xs leading-5 text-[var(--muted)]">A receita registrada usa a base dos dados importados e das integrações. Dentro de cada projeto, o Resumo separa bruto, líquido após taxas e repasse ao produtor. Valores indisponíveis não são substituídos por zero.</p>
+      {missingSources.length > 0 && (
+        <div className="rounded-xl border border-amber-400/30 bg-amber-100/55 px-4 py-3 text-xs leading-5 text-amber-950">
+          <p className="font-bold">Dados indisponíveis no período selecionado</p>
+          <p>Os projetos abaixo continuam na seleção. Os totais que dependem dessas fontes ficam indisponíveis; ausência de registros não comprova valor zero.</p>
+          <ul className="mt-2 list-inside list-disc">
+            {missingSources.map(project => <li key={project.id}><Link className="underline" href={`/projects/${project.id}?${new URLSearchParams({ start: period.start, end: period.end })}`}>{project.name}</Link>: {project.missing}.</li>)}
+          </ul>
+        </div>
+      )}
 
-      {(hasSales || hasTraffic) && <section className="grid gap-4 xl:grid-cols-[1.55fr_.8fr]">
+      <p className="text-xs leading-5 text-[var(--muted)]">Valores dos eventos recebidos ou importados; ainda não comprovam todo o histórico dos gateways. O líquido após taxas é anterior à divisão entre participantes. O gasto da Meta corresponde à última sincronização. ROAS e mídia por venda cruzam totais do período, incluindo vendas orgânicas; não são a atribuição da Meta. O saldo não considera custos externos nem a divisão entre parceiros.</p>
+
+      {rows.length > 0 && <section className="grid gap-4 xl:grid-cols-[1.55fr_.8fr]">
         <article className="panel rounded-[24px] p-5 sm:p-6">
           <div className="mb-6 flex items-start justify-between gap-3">
             <div>
               <p className="eyebrow">Pulso financeiro</p>
               <h2 className="mt-2 text-xl font-black tracking-[-0.035em]">
-                Receita e investimento diario
+                Líquido e investimento diário
               </h2>
             </div>
             <div className="flex gap-4 text-[10px] font-bold uppercase tracking-wider text-[var(--muted)]">
               <span className="flex items-center gap-1.5">
-                <i className="size-2 rounded-full bg-[var(--mint)]" /> Receita
+                <i className="size-2 rounded-full bg-[var(--mint)]" /> Líquido
               </span>
               <span className="flex items-center gap-1.5">
                 <i className="size-2 rounded-full bg-[var(--coral)]" /> Meta
@@ -236,7 +264,7 @@ export function OverviewDashboard({
                   tickLine={false}
                 />
                 <Tooltip
-                  formatter={(value) => formatCurrency(Number(value))}
+                  formatter={(value) => value === null || value === undefined ? "Indisponível" : formatCurrency(Number(value))}
                   labelFormatter={(label) => `Dia ${String(label).slice(8)}`}
                   contentStyle={{
                     background: "#121a24",
@@ -247,15 +275,19 @@ export function OverviewDashboard({
                   }}
                 />
                 <Area
-                  type="monotone"
+                  type="linear"
                   dataKey="revenue"
+                  name="Líquido após taxas"
+                  connectNulls={false}
                   stroke="#20a999"
                   strokeWidth={2.5}
                   fill="url(#revenue)"
                 />
                 <Area
-                  type="monotone"
+                  type="linear"
                   dataKey="investment"
+                  name="Investimento em mídia"
+                  connectNulls={false}
                   stroke="#ff6b5e"
                   strokeWidth={2}
                   fill="transparent"
@@ -263,6 +295,7 @@ export function OverviewDashboard({
               </AreaChart>
             </ResponsiveContainer>
           </div>
+          <p className="mt-3 text-xs text-[var(--muted)]">Lacunas indicam dados indisponíveis. Um dia sem informação não é exibido como zero.</p>
         </article>
 
         <article className="rounded-[24px] bg-[var(--sidebar)] p-5 text-white sm:p-6">
@@ -272,7 +305,7 @@ export function OverviewDashboard({
                 Ritmo de vendas
               </p>
               <h2 className="mt-2 text-xl font-black tracking-[-0.035em]">
-                Core por dia
+                Vendas de entrada por dia
               </h2>
             </div>
             <ShoppingBag size={19} className="text-[var(--signal)]" />
@@ -303,7 +336,7 @@ export function OverviewDashboard({
                     fontSize: 12,
                   }}
                 />
-                <Bar dataKey="coreSales" fill="#d8ff63" radius={[5, 5, 0, 0]} />
+                <Bar dataKey="coreSales" name="Vendas de entrada" fill="#d8ff63" radius={[5, 5, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -330,6 +363,7 @@ export function OverviewDashboard({
             {visibleProjects.map((project) => {
               const projectRows = project.dailyMetrics.filter((row) => row.date >= period.start && row.date <= period.end);
               const performance = calculatePerformance(projectRows);
+              const available = overviewDataAvailability(projectRows);
               return (
                 <Link
                   key={project.id}
@@ -349,9 +383,9 @@ export function OverviewDashboard({
                     </p>
                   </div>
                   <div className="hidden text-right sm:block">
-                    <p className="text-sm font-black">{projectRows.some((row) => row.revenue || row.coreSales) ? formatCurrency(performance.revenue) : "Sem vendas no período"}</p>
+                    <p className="text-sm font-black">{available.revenue ? formatCurrency(performance.revenue) : "Líquido indisponível"}</p>
                     <p className="text-[10px] text-[var(--muted)]">
-                      {performance.investment > 0 && performance.revenue !== 0 ? `${performance.roas.toFixed(2)}x ROAS` : "Confira as fontes"}
+                      {available.revenue && available.traffic && performance.investment > 0 && performance.roas !== null ? `${performance.roas.toFixed(2)}x ROAS líquido` : "Confira as fontes"}
                     </p>
                   </div>
                   <ArrowUpRight

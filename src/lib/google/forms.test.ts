@@ -159,3 +159,26 @@ describe("dynamic form columns", () => {
     expect(sheet.hasMore).toBe(true);
   });
 });
+
+describe("Google Forms attribution", () => {
+  const responseForTitles = (titles: string[]) => {
+    const questions = normalizeQuestions({ formId: "form", items: titles.map((title, index) => ({
+      title, questionItem: { question: { questionId: `q${index}`, textQuestion: {} } },
+    })) });
+    return normalizeResponses([{ responseId: "response", createTime: "2026-10-01T12:00:00Z",
+      answers: Object.fromEntries(titles.map((_, index) => [`q${index}`, { textAnswers: { answers: [{ value: `answer-${index}` }] } }])),
+    }], questions)[0];
+  };
+
+  it("does not turn survey topics or generic titles into tracking parameters", () => {
+    const response = responseForTitles(["Qual sua origem familiar?", "Qual conteúdo deseja estudar?", "Campanha", "Meio", "Origem", "Conteúdo"]);
+    expect(response.utm).toEqual({});
+    expect(response.answers).toHaveLength(6);
+    expect(response.answers[0].values).toEqual(["answer-0"]);
+  });
+
+  it("recognizes only exact technical field names, including utm_id", () => {
+    expect(responseForTitles(["utm_source", "UTM Medium", "utm_campaign", "utm_content", "utm_term", " utm_id ", "Qual o utm_source?"]).utm)
+      .toEqual({ source: "answer-0", medium: "answer-1", campaign: "answer-2", content: "answer-3", term: "answer-4", id: "answer-5" });
+  });
+});

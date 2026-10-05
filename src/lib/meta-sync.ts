@@ -50,6 +50,9 @@ export async function syncProjectMeta(context: Pick<AdminContext, "supabase" | "
       .eq("is_active", true);
     if (accountsError) throw accountsError;
     if (!accounts?.length) throw new ApiError("Nenhuma conta Meta vinculada.", 422);
+    if (accounts.length !== accountIds.length) {
+      throw new ApiError("Há contas vinculadas inativas ou indisponíveis. Revise os vínculos antes de sincronizar o projeto inteiro.", 422);
+    }
     if (accounts.some((account) => account.currency !== "BRL")) {
       throw new ApiError("A Central aceita apenas contas Meta em BRL neste momento.", 422);
     }

@@ -96,6 +96,17 @@ it("keeps net after fees separate from producer payout and identifies missing or
   expect(screen.getByText("Sem origem informada")).toBeTruthy();
   expect(screen.getByText(/1 de 1 compra\(s\) sem página/)).toBeTruthy();
 });
+it("counts one purchase with bumps and a checkout URL as one purchase without a landing page", async () => {
+  const checkoutSale = saleFromRecord({ id: "checkout-sale", external_transaction_id: "checkout-transaction",
+    connection_id: "hubla", payload: { attribution: { landing_url: "https://pay.hub.la/offer", utm: { source: "FB" } } } });
+  vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => ({ data: { ...data,
+    sales: [checkoutSale, { ...checkoutSale, id: "bump", orderBump: true }],
+  } }) } as Response);
+  render(<ProjectSummary {...props} />);
+  await screen.findByText(/1 de 1 compra\(s\) sem página de entrada/);
+  expect(screen.getByText("1 compra(s)")).toBeTruthy();
+  expect(screen.queryByText("2 compra(s)")).toBeNull();
+});
 it("hides prior amounts while another period is pending or fails", async () => {
   const view = render(<ProjectSummary {...props} />);
   await screen.findAllByText(/41,82/);

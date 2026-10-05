@@ -136,16 +136,18 @@ export function calculateDailyPerformance(
   const orderBumps = metric.productMetrics.filter(
     (product) => product.stageType === "order_bump",
   );
-  const coreSales = Math.max(
-    metric.coreSales,
-    coreProducts.reduce((sum, product) => sum + product.quantity, 0),
-  );
+  // Acquisition counts come from the approved-sale ledger. Product quantities
+  // can be net of later refunds and must not silently replace that denominator.
+  const coreSales = metric.coreSales;
   const coreRevenue = coreProducts.reduce((sum, product) => sum + product.revenue, 0);
   const trackedRevenue = metric.revenue;
   const finalInvestment = metric.investment * (1 + trafficFeePercent / 100);
-  const coreRevenueAvailable = coreSales === 0 || coreRevenue !== 0;
-  const hasTrackedSales = coreSales > 0 || orderBumps.some((product) => product.quantity > 0);
-  const trackedRevenueAvailable = !hasTrackedSales || trackedRevenue !== 0;
+  const salesAvailable = metric.salesAvailable !== false;
+  const trafficAvailable = metric.trafficAvailable !== false;
+  const comparisonAvailable = metric.comparisonAvailable !== false;
+  const coreRevenueAvailable = salesAvailable &&
+    (coreProducts.length > 0 ? coreProducts.every((product) => product.revenueAvailable !== false) : coreSales === 0);
+  const trackedRevenueAvailable = metric.revenueAvailable !== false;
 
   return {
     ...metric,
@@ -156,17 +158,17 @@ export function calculateDailyPerformance(
     trackedRevenue,
     trackedRevenueAvailable,
     finalInvestment,
-    ctr: ratioPercentage(metric.clicks, metric.impressions),
-    connectRate: ratioPercentage(metric.pageViews, metric.clicks),
-    landingPageConversion: ratioPercentage(metric.checkouts, metric.pageViews),
-    checkoutConversion: ratioPercentage(coreSales, metric.checkouts),
-    cpa: coreSales > 0 && finalInvestment > 0 ? finalInvestment / coreSales : null,
-    arpu: coreSales > 0 && trackedRevenueAvailable ? trackedRevenue / coreSales : null,
-    coreRoas: finalInvestment > 0 && coreRevenueAvailable
-      ? coreRevenue / finalInvestment
+    ctr: trafficAvailable ? ratioPercentage(metric.clicks, metric.impressions) : null,
+    connectRate: trafficAvailable ? ratioPercentage(metric.pageViews, metric.clicks) : null,
+    landingPageConversion: trafficAvailable ? ratioPercentage(metric.checkouts, metric.pageViews) : null,
+    checkoutConversion: comparisonAvailable && salesAvailable && trafficAvailable ? ratioPercentage(coreSales, metric.checkouts) : null,
+    cpa: comparisonAvailable && salesAvailable && trafficAvailable && coreSales > 0 ? metric.investment / coreSales : null,
+    arpu: comparisonAvailable && salesAvailable && coreSales > 0 && trackedRevenueAvailable ? trackedRevenue / coreSales : null,
+    coreRoas: comparisonAvailable && trafficAvailable && metric.investment > 0 && coreRevenueAvailable
+      ? coreRevenue / metric.investment
       : null,
-    generalRoas: finalInvestment > 0 && trackedRevenueAvailable
-      ? trackedRevenue / finalInvestment
+    generalRoas: comparisonAvailable && trafficAvailable && metric.investment > 0 && trackedRevenueAvailable
+      ? trackedRevenue / metric.investment
       : null,
   };
 }
@@ -180,16 +182,25 @@ export function aggregateProjectDailyMetrics(rows: ProjectDailyMetric[]): Projec
       const current = products.get(key) ?? {
         ...product,
         quantity: 0,
+        approvedQuantity: 0,
         revenue: 0,
+        revenueAvailable: true,
       };
       current.quantity += product.quantity;
+      current.approvedQuantity = (current.approvedQuantity ?? 0) +
+        (product.approvedQuantity ?? Math.max(0, product.quantity));
       current.revenue += product.revenue;
+      current.revenueAvailable = current.revenueAvailable !== false && product.revenueAvailable !== false;
       products.set(key, current);
     }
   }
 
   return {
     date: "GERAL",
+    revenueAvailable: rows.length > 0 && rows.every((row) => row.revenueAvailable !== false),
+    trafficAvailable: rows.length > 0 && rows.every((row) => row.trafficAvailable !== false),
+    salesAvailable: rows.length > 0 && rows.every((row) => row.salesAvailable !== false),
+    comparisonAvailable: rows.length > 0 && rows.every((row) => row.comparisonAvailable !== false),
     investment: rows.reduce((sum, row) => sum + row.investment, 0),
     revenue: rows.reduce((sum, row) => sum + row.revenue, 0),
     impressions: rows.reduce((sum, row) => sum + row.impressions, 0),
@@ -219,7 +230,10 @@ export function calculateFinancialSummary(
     trafficInvestment * (1 + config.trafficFeePercent / 100);
   const operatingCosts = config.manychatCost + config.companyCosts + config.otherCosts;
   const totalCost = finalTrafficInvestment + operatingCosts;
-  const profit = revenue - totalCost;
+  const revenueAvailable = rows.length > 0 && rows.every((row) => row.revenueAvailable !== false);
+  const trafficAvailable = rows.length > 0 && rows.every((row) => row.trafficAvailable !== false);
+  const comparisonAvailable = rows.length > 0 && rows.every((row) => row.comparisonAvailable !== false);
+  const profit = comparisonAvailable && revenueAvailable && trafficAvailable ? revenue - totalCost : null;
 
   return {
     revenue,
@@ -228,10 +242,10 @@ export function calculateFinancialSummary(
     operatingCosts,
     totalCost,
     profit,
-    margin: percentage(profit, revenue),
-    roas: finalTrafficInvestment > 0 ? revenue / finalTrafficInvestment : 0,
-    roi: totalCost > 0 ? profit / totalCost : 0,
-    companyResult: profit * (config.companySharePercent / 100),
+    margin: profit !== null ? ratioPercentage(profit, revenue) : null,
+    roas: comparisonAvailable && revenueAvailable && trafficAvailable && trafficInvestment > 0 ? revenue / trafficInvestment : null,
+    roi: profit !== null && totalCost > 0 ? profit / totalCost : null,
+    companyResult: profit !== null ? profit * (config.companySharePercent / 100) : null,
   };
 }
 
@@ -257,12 +271,12 @@ export function calculateProjectionScenario(
   const revenue = ticketRevenue + formationRevenue;
   const mediaBudget =
     config.ticketBudget +
-    config.apiBudget +
     config.remarketingBudget +
     config.distributionBudget;
   const finalMediaInvestment = mediaBudget * (1 + config.trafficFeePercent / 100);
   const plannedCost =
     finalMediaInvestment +
+    config.apiBudget +
     config.manychatCost +
     config.companyCosts +
     config.otherCosts;
@@ -278,6 +292,6 @@ export function calculateProjectionScenario(
     finalMediaInvestment,
     plannedCost,
     profit: revenue - plannedCost,
-    roas: finalMediaInvestment > 0 ? revenue / finalMediaInvestment : 0,
+    roas: mediaBudget > 0 ? revenue / mediaBudget : null,
   };
 }

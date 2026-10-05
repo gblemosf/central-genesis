@@ -19,6 +19,18 @@ export function safeWebUrl(value: unknown): string | null {
   }
 }
 
+// Legacy gateway payloads stored their checkout URL as landing_url. Classify
+// only recognizable checkout addresses; never derive a landing page from UTMs.
+export function isCheckoutUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return /^(?:pay|checkout|pagamento)\.(?:hub\.la|hotmart\.com|payt\.com\.br|assiny\.com\.br)$/.test(url.hostname) ||
+      /^\/checkout(?:\/|$)/i.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
 const knownPages: Record<string, string> = {
   dpaf6373: "https://bravuscursos.com.br/operacao-farda-v1-h1/",
   dpaf6860: "https://bravuscursos.com.br/da-prova-a-farda-v2h1/",
@@ -34,6 +46,7 @@ export interface SaleAttribution {
   term: string;
   id: string;
   page: string | null;
+  checkoutUrl?: string | null;
   code: string;
   raw: string;
 }
@@ -76,12 +89,17 @@ export function saleAttribution(
       text(utm[field]) || text(origin[`utm_${field}`]) || parsed[field] || "",
     ]),
   ) as Record<(typeof fields)[number], string>;
+  const pageCandidates = [origin.landing_url, origin.page_url, origin.page]
+    .map(safeWebUrl).filter((value): value is string => Boolean(value));
+  const checkoutUrl = safeWebUrl(origin.checkout_url) ??
+    pageCandidates.find(isCheckoutUrl) ?? null;
   return {
     ...result,
     raw,
     code,
     page:
-      safeWebUrl(origin.landing_url || origin.page_url || origin.page) ??
+      pageCandidates.find((url) => url !== checkoutUrl && !isCheckoutUrl(url)) ??
       (productId === "8304193" ? (knownPages[code] ?? null) : null),
+    checkoutUrl,
   };
 }

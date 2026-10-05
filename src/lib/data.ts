@@ -23,6 +23,8 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getSupabasePublicEnv } from "@/lib/supabase/env";
 import { validAnalysisPeriod } from "@/lib/analysis-filters";
 import { readQueryPages } from "@/lib/read-query-pages";
+import { readReconciledMetrics } from "@/lib/metric-reconciliation-data";
+import { readMetricIntakeWarnings } from "@/lib/metric-intake-warnings";
 import { titleCase } from "@/lib/utils";
 
 interface LegacyTrafficRow {
@@ -104,16 +106,6 @@ export interface AppData<T> {
 const numberValue = (value: number | string | null | undefined) =>
   Number.parseFloat(String(value ?? 0)) || 0;
 
-function normalizedCsvRevenue(
-  row: NormalizedCsvDailyRow,
-  config: ReturnType<typeof normalizeProjectMetricConfig>,
-) {
-  return numberValue(row.core_sales) * config.ticketNetPrice +
-    numberValue(row.order_bump_1_sales) * config.orderBump1NetPrice +
-    numberValue(row.order_bump_2_sales) * config.orderBump2NetPrice +
-    numberValue(row.order_bump_3_sales) * config.orderBump3NetPrice;
-}
-
 function aggregateLegacyData(
   trafficRows: LegacyTrafficRow[],
   salesRows: LegacySalesRow[],
@@ -139,6 +131,7 @@ function aggregateLegacyData(
         pageViews: 0,
         checkouts: 0,
         coreSales: 0,
+        revenueAvailable: false, salesAvailable: false, trafficAvailable: false,
       };
       metrics.set(date, current);
       return current;
@@ -149,6 +142,7 @@ function aggregateLegacyData(
       .forEach((row) => {
         const metric = getMetric(row.date);
         metric.investment = numberValue(row.invest);
+        metric.trafficAvailable = row.invest !== null;
         metric.impressions = row.impressions ?? 0;
         metric.clicks = row.clicks ?? 0;
         metric.pageViews = row.pageviews ?? 0;
@@ -160,6 +154,8 @@ function aggregateLegacyData(
       .forEach((row) => {
         const metric = getMetric(row.date);
         metric.revenue = numberValue(row.fat_liquido);
+        metric.revenueAvailable = false;
+        metric.salesAvailable = true;
         metric.coreSales = row.core ?? 0;
       });
 
@@ -190,8 +186,8 @@ function aggregateLegacyData(
         .join("")
         .slice(0, 2)
         .toUpperCase(),
-      monthlyTarget: 100000,
-      marginTarget: 65,
+      monthlyTarget: 0,
+      marginTarget: 0,
       investment,
       revenue,
       coreSales,
@@ -220,7 +216,7 @@ export async function getProjects(period?: { start: string; end: string }): Prom
   const { data: normalizedProjects, error: normalizedError } = await supabase
     .from("projects")
     .select(
-      "id,name,slug,status,color,monthly_revenue_target,margin_target,expert_id,deleted_at,settings,experts(name)",
+      "id,name,slug,status,color,monthly_revenue_target,margin_target,expert_id,deleted_at,settings,reporting_timezone,experts(name)",
     )
     .order("created_at", { ascending: true });
 
@@ -258,6 +254,15 @@ export async function getProjects(period?: { start: string; end: string }): Prom
           : ((legacyProducts.data ?? []) as ProductMapRow[]),
       )
     : [];
+  for (const project of legacyProjectSummaries) {
+    const byDate = new Map(project.dailyMetrics.map(row => [row.date, row]));
+    for (const cursor = new Date(`${reportingStartDate}T12:00:00Z`); cursor.toISOString().slice(0, 10) <= reportingEndDate; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
+      const date = cursor.toISOString().slice(0, 10);
+      if (!byDate.has(date)) byDate.set(date, { date, investment: 0, revenue: 0, coreSales: 0,
+        impressions: 0, clicks: 0, pageViews: 0, checkouts: 0, revenueAvailable: false, trafficAvailable: false, salesAvailable: false });
+    }
+    project.dailyMetrics = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+  }
   const activeNormalizedProjects = (normalizedProjects ?? []).filter(
     (project) => !project.deleted_at,
   );
@@ -310,6 +315,7 @@ export async function getProjects(period?: { start: string; end: string }): Prom
           pageViews: 0,
           checkouts: 0,
           coreSales: 0,
+          revenueAvailable: false, salesAvailable: false, trafficAvailable: false,
         };
         dates.set(date, metric);
         return metric;
@@ -328,14 +334,6 @@ export async function getProjects(period?: { start: string; end: string }): Prom
           metric.coreSales += numberValue(row.core_sales);
         });
 
-      const projectSettings = project.settings !== null &&
-          typeof project.settings === "object" && !Array.isArray(project.settings)
-        ? project.settings as Record<string, unknown>
-        : {};
-      const projectConfig = normalizeProjectMetricConfig(
-        projectSettings.metrics,
-        dateInTimezone(new Date()),
-      );
       for (const row of (csvDaily.data ?? []) as NormalizedCsvDailyRow[]) {
         if (row.project_id !== project.id) continue;
         const metric = metricFor(row.metric_date);
@@ -345,7 +343,8 @@ export async function getProjects(period?: { start: string; end: string }): Prom
         metric.pageViews = numberValue(row.page_views);
         metric.checkouts = numberValue(row.checkouts);
         metric.coreSales = numberValue(row.core_sales);
-        metric.revenue = normalizedCsvRevenue(row, projectConfig);
+        metric.revenue = 0;
+        metric.salesAvailable = true; metric.trafficAvailable = true;
       }
 
       const legacyProject = legacyProjectSummaries.find(
@@ -355,6 +354,7 @@ export async function getProjects(period?: { start: string; end: string }): Prom
         if (row.projeto !== project.slug) continue;
         const metric = metricFor(row.date);
         metric.investment = numberValue(row.invest);
+        metric.trafficAvailable = row.invest !== null;
         metric.impressions = numberValue(row.impressions);
         metric.clicks = numberValue(row.clicks);
         metric.pageViews = numberValue(row.pageviews);
@@ -364,6 +364,7 @@ export async function getProjects(period?: { start: string; end: string }): Prom
         if (row.projeto !== project.slug) continue;
         const metric = metricFor(row.date);
         metric.revenue = numberValue(row.fat_liquido);
+        metric.salesAvailable = true;
         metric.coreSales = numberValue(row.core);
       }
       // Normalized imports are authoritative when an upgraded project still has
@@ -377,7 +378,8 @@ export async function getProjects(period?: { start: string; end: string }): Prom
         metric.pageViews = numberValue(row.page_views);
         metric.checkouts = numberValue(row.checkouts);
         metric.coreSales = numberValue(row.core_sales);
-        metric.revenue = normalizedCsvRevenue(row, projectConfig);
+        metric.revenue = 0;
+        metric.salesAvailable = true; metric.trafficAvailable = true;
       }
       const dailyMetrics = Array.from(dates.values()).sort((a, b) =>
         a.date.localeCompare(b.date),
@@ -412,12 +414,28 @@ export async function getProjects(period?: { start: string; end: string }): Prom
       } as ProjectSummary;
     });
 
+    const audited = await readReconciledMetrics(supabase, projects.map(project => ({
+      id: project.id,
+      timezone: activeNormalizedProjects.find(row => row.id === project.id)?.reporting_timezone ?? "America/Sao_Paulo",
+      baseline: project.dailyMetrics.map(row => ({ ...row, productMetrics: [] })),
+    })), reportingStartDate, reportingEndDate);
+    const qualityWarnings = await readMetricIntakeWarnings(supabase, projectIds, reportingStartDate, reportingEndDate);
+    for (const project of projects) {
+      project.qualityWarnings = qualityWarnings.get(project.id);
+      const rows = audited.data.get(project.id);
+      project.dailyMetrics = rows ?? project.dailyMetrics.map(row => ({ ...row, revenueAvailable: false, trafficAvailable: false, salesAvailable: false }));
+      if (project.qualityWarnings?.length) project.dailyMetrics = project.dailyMetrics.map(row => ({ ...row, comparisonAvailable: false }));
+      project.revenue = project.dailyMetrics.reduce((sum, row) => sum + row.revenue, 0);
+      project.investment = project.dailyMetrics.reduce((sum, row) => sum + row.investment, 0);
+      project.coreSales = project.dailyMetrics.reduce((sum, row) => sum + row.coreSales, 0);
+    }
     return {
       data: [
         ...projects,
         ...legacyProjectSummaries.filter((project) => !normalizedSlugs.has(project.id)),
       ],
       source: "live",
+      warning: audited.error ? `Não foi possível conferir as bases financeiras: ${audited.error.message}` : undefined,
     };
   }
 
@@ -677,7 +695,7 @@ export async function getProjectAnalytics(
       const response = await supabase
         .from("recognized_sales_events")
         .select(
-          "id,event_type,event_at,currency,net_amount,payload,sales_event_items(id,product_id,funnel_stage_id,product_name_snapshot,stage_type_snapshot,quantity,net_amount)",
+          "id,event_type,event_at,currency,gross_amount,net_amount,payload,sales_event_items(id,product_id,funnel_stage_id,product_name_snapshot,stage_type_snapshot,quantity,gross_amount,net_amount,products(external_id))",
         )
         .eq("project_id", projectId)
         .in("event_type", [
@@ -860,6 +878,7 @@ export async function getProjectAnalytics(
       checkouts: 0,
       coreSales: 0,
       productMetrics: [],
+      revenueAvailable: false, salesAvailable: false, trafficAvailable: false,
     };
     rows.set(date, metric);
     return metric;
@@ -882,11 +901,6 @@ export async function getProjectAnalytics(
       a.name.localeCompare(b.name)
     )
     .slice(0, 3);
-  const orderBumpPrices = [
-    config.orderBump1NetPrice,
-    config.orderBump2NetPrice,
-    config.orderBump3NetPrice,
-  ];
   const normalizedCsvDates = new Set(
     ((normalizedCsvDaily.data ?? []) as NormalizedCsvDailyRow[]).map((row) => row.metric_date),
   );
@@ -897,13 +911,13 @@ export async function getProjectAnalytics(
       numberValue(row.order_bump_2_sales),
       numberValue(row.order_bump_3_sales),
     ];
-    const corePrice = config.ticketNetPrice;
     metric.investment = numberValue(row.investment);
     metric.impressions = numberValue(row.impressions);
     metric.clicks = numberValue(row.clicks);
     metric.pageViews = numberValue(row.page_views);
     metric.checkouts = numberValue(row.checkouts);
     metric.coreSales = numberValue(row.core_sales);
+    metric.salesAvailable = true; metric.trafficAvailable = true;
     metric.csvDaily = {
       core: metric.coreSales,
       ob1: quantities[0],
@@ -917,7 +931,7 @@ export async function getProjectAnalytics(
         productName: coreProduct?.name ?? "Core",
         stageType: "core",
         quantity: metric.coreSales,
-        revenue: metric.coreSales * corePrice,
+        revenue: 0, revenueAvailable: false,
       },
       ...quantities.map((quantity, index) => ({
         productId: orderBumpProducts[index]?.id ?? `csv-ob-${index + 1}`,
@@ -925,7 +939,7 @@ export async function getProjectAnalytics(
         productName: orderBumpProducts[index]?.name ?? `OB${index + 1}`,
         stageType: "order_bump" as const,
         quantity,
-        revenue: quantity * orderBumpPrices[index],
+        revenue: 0, revenueAvailable: false,
       })),
     ];
     metric.revenue = metric.productMetrics.reduce((sum, product) => sum + product.revenue, 0);
@@ -952,6 +966,7 @@ export async function getProjectAnalytics(
     for (const row of (legacyTraffic.data ?? []) as LegacyTrafficRow[]) {
       const metric = metricFor(row.date);
       metric.investment = numberValue(row.invest);
+      metric.trafficAvailable = row.invest !== null;
       metric.impressions = numberValue(row.impressions);
       metric.clicks = numberValue(row.clicks);
       metric.pageViews = numberValue(row.pageviews);
@@ -963,6 +978,7 @@ export async function getProjectAnalytics(
       const metric = metricFor(row.date);
       metric.revenue = numberValue(row.fat_liquido);
       metric.coreSales = numberValue(row.core);
+      metric.salesAvailable = true;
       metric.csvDaily = {
         core: numberValue(row.core),
         ob1: numberValue(row.ob1),
@@ -982,6 +998,7 @@ export async function getProjectAnalytics(
 
   const stages = new Map(catalog.stages.map((stage) => [stage.id, stage]));
   for (const event of sales.data) {
+    if (event.currency !== "BRL") continue;
     const eventDate = dateInTimezone(new Date(event.event_at), project.reporting_timezone);
     if (eventDate < config.periodStart || eventDate > config.periodEnd) continue;
     if (normalizedCsvDates.has(eventDate)) continue;
@@ -1120,9 +1137,14 @@ export async function getProjectAnalytics(
       ...((legacySales.data ?? []) as LegacySalesRow[]).map((row) => row.date),
     ].filter((date) => !normalizedCsvDateSet.has(date)),
   );
+  const audited = await readReconciledMetrics(supabase, [{ id: projectId,
+    timezone: project.reporting_timezone ?? "America/Sao_Paulo", baseline: Array.from(rows.values()),
+  }], config.periodStart, config.periodEnd);
+  const qualityWarnings = await readMetricIntakeWarnings(supabase, [projectId], config.periodStart, config.periodEnd);
   return {
     config,
     configSaved,
+    qualityWarnings: qualityWarnings.get(projectId),
     observedSales: sales.error ? [] : sales.data.flatMap((event) => observedSaleFromEvent(
       event, dateInTimezone(new Date(event.event_at), project.reporting_timezone),
     )),
@@ -1133,7 +1155,8 @@ export async function getProjectAnalytics(
       webhookSalesEvents: webhookSalesCount.count ?? 0,
       unmappedSalesEvents: unmappedSalesCount.count ?? 0,
     },
-    dailyMetrics: Array.from(rows.values()).sort((a, b) => a.date.localeCompare(b.date)),
+    dailyMetrics: (audited.data.get(projectId) ?? Array.from(rows.values()).map(row => ({ ...row, revenueAvailable: false, trafficAvailable: false, salesAvailable: false })))
+      .map(row => ({ ...row, comparisonAvailable: !qualityWarnings.get(projectId)?.length })),
     imports: (importHistory.data ?? []).map((item) => ({
       id: item.id,
       filename: item.original_filename,
@@ -1143,7 +1166,7 @@ export async function getProjectAnalytics(
       periodEnd: item.period_end,
       importedAt: item.created_at,
     })),
-    ...(warning ? { warning } : {}),
+    ...((warning ?? audited.error?.message) ? { warning: warning ?? audited.error?.message } : {}),
   };
 }
 
