@@ -901,8 +901,9 @@ export function ProjectWorkspace({
                   Vincular formulario
                 </h2>
                 <p className="mt-2 max-w-2xl text-xs leading-5 text-[var(--muted)]">
-                  Informe a URL do Google Form. A sincronizacao inicial busca perguntas,
-                  respostas, contatos e UTMs.
+                  Cole o link de edição do Google Forms, que termina em /edit, ou o ID
+                  do formulário. A conta Google conectada precisa ter acesso. A
+                  sincronização inicial busca perguntas, respostas, contatos e UTMs.
                 </p>
               </div>
               {!googleConnections.length && !demoMode &&
@@ -943,10 +944,10 @@ export function ProjectWorkspace({
               </select>
               <input
                 className="field"
-                aria-label="URL do formulário Google"
+                aria-label="Link de edição ou ID do formulário Google"
                 value={googleFormUrl}
                 onChange={(event) => setGoogleFormUrl(event.target.value)}
-                placeholder="https://docs.google.com/forms/d/..."
+                placeholder="https://docs.google.com/forms/d/ID_DO_FORMULARIO/edit"
               />
               <button
                 type="button"

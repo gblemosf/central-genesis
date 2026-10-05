@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  extractGoogleFormId,
   fetchGoogleFormResponsePage,
   normalizeQuestions,
   normalizeResponses,
@@ -7,6 +8,25 @@ import {
 import { answerText } from "@/lib/form-table";
 import { fetchLinkedSheet, sheetColumn } from "@/lib/google/sheets";
 afterEach(() => vi.unstubAllGlobals());
+
+describe("Google Forms identifiers", () => {
+  const formId = "1aqPVfTzG5eAxg311Iamp4TVQ9vbNmOik_jibb9lyOFU";
+
+  it("extracts the API identifier from an editor link or a pasted ID", () => {
+    expect(extractGoogleFormId(`https://docs.google.com/forms/d/${formId}/edit?usp=sharing`)).toBe(formId);
+    expect(extractGoogleFormId(`  ${formId}  `)).toBe(formId);
+  });
+
+  it("rejects published links with actionable guidance instead of using the responder ID", () => {
+    const publishedUrl = "https://docs.google.com/forms/d/e/1FAIpQLScnsgBQaqYJov2002oLydh5uEqSLg3cGbBF6V46EtlG3EMpiA/viewform";
+    expect(() => extractGoogleFormId(publishedUrl)).toThrow(/link de preenchimento.*\/edit/);
+    try {
+      extractGoogleFormId(publishedUrl);
+    } catch (error) {
+      expect(error).toHaveProperty("status", 400);
+    }
+  });
+});
 
 describe("dynamic form columns", () => {
   const questions = normalizeQuestions({

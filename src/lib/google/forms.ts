@@ -98,15 +98,24 @@ export function extractGoogleFormId(input: string) {
   const directMatch = value.match(/^[a-zA-Z0-9_-]{20,}$/);
   if (directMatch) return value;
 
+  let url: URL;
   try {
-    const url = new URL(value);
-    const pathMatch = url.pathname.match(/\/forms\/d\/(?:e\/)?([^/]+)/);
-    if (pathMatch?.[1]) return pathMatch[1];
-    const id = url.searchParams.get("id") ?? url.searchParams.get("formId");
-    if (id) return id;
+    url = new URL(value);
   } catch {
-    // fall through
+    throw new ApiError("URL do Google Form invalida.", 400);
   }
+
+  if (/\/forms\/d\/e(?:\/|$)/.test(url.pathname)) {
+    throw new ApiError(
+      "Este é o link de preenchimento. Abra o formulário no Google Forms como editor e copie o endereço que termina em /edit. A conta Google conectada precisa ter acesso ao formulário.",
+      400,
+    );
+  }
+
+  const pathMatch = url.pathname.match(/\/forms\/d\/([^/]+)/);
+  if (pathMatch?.[1]) return pathMatch[1];
+  const id = url.searchParams.get("id") ?? url.searchParams.get("formId");
+  if (id) return id;
 
   throw new ApiError("URL do Google Form invalida.", 400);
 }
