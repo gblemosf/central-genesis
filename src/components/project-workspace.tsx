@@ -23,7 +23,7 @@ import { metricViews, readWorkspaceLocation, workspaceQuery, type WorkspaceView,
 import { ProjectMetricsPanel } from "@/components/project-metrics-panel";
 import { AnalysisFilters } from "@/components/analysis-filters";
 import { filterProductMetrics, type AnalysisFilter } from "@/lib/analysis-filters";
-import { dateInTimezone } from "@/lib/dates";
+import { dateInTimezone, genesisReportingTimezone } from "@/lib/dates";
 import { ProjectOperationsPanel, type OperationView } from "@/components/project-operations-panel";
 import { ProjectFormResponses } from "@/components/project-form-responses";
 import type {
@@ -77,6 +77,7 @@ function formatDateTime(value: string | null) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return new Intl.DateTimeFormat("pt-BR", {
+    timeZone: genesisReportingTimezone,
     dateStyle: "short",
     timeStyle: "short",
   }).format(date);
