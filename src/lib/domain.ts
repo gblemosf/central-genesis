@@ -183,6 +183,7 @@ export interface IntegrationConnection {
   productCount: number;
   lastVerifiedAt: string | null;
   lastError?: string;
+  archivedAt?: string | null;
 }
 
 export interface GoogleFormsConnectionOption {

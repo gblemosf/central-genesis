@@ -1414,7 +1414,7 @@ export async function getSalesConnectionsForOnboarding(): Promise<SalesConnectio
   }));
 }
 
-export async function getConnections(): Promise<
+export async function getConnections(options: { includeArchived?: boolean } = {}): Promise<
   AppData<IntegrationConnection[]>
 > {
   const supabase = await createSupabaseServerClient();
@@ -1427,7 +1427,7 @@ export async function getConnections(): Promise<
   const { data, error } = await supabase
     .from("integration_connections")
     .select(
-      "id,name,provider,status,business_id,app_id,system_user_id,last_verified_at,last_error,provider_accounts(count),products(count)",
+      "id,name,provider,status,business_id,app_id,system_user_id,last_verified_at,last_error,archived_at:metadata->>genesis_archived_at,provider_accounts(count),products(count)",
     )
     .order("created_at", { ascending: true });
 
@@ -1451,7 +1451,13 @@ export async function getConnections(): Promise<
       ? String(row.last_verified_at)
       : null,
     lastError: row.last_error ? String(row.last_error) : undefined,
+    archivedAt: typeof row.archived_at === "string" ? row.archived_at : null,
   }));
 
-  return { data: connections, source: "live" };
+  return {
+    data: options.includeArchived
+      ? connections
+      : connections.filter(connection => connection.status !== "revoked" || !connection.archivedAt),
+    source: "live",
+  };
 }

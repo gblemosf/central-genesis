@@ -1,6 +1,8 @@
 "use client";
 
 import {
+  Archive,
+  ArchiveRestore,
   Check,
   Copy,
   KeyRound,
@@ -57,6 +59,10 @@ const emptyForm: ConnectionForm = {
 };
 
 const catalogProviders: Provider[] = ["hotmart", "eduzz", "kiwify"];
+const connectionStatusLabels = {
+  connected: "Conectada", attention: "Atenção", revoked: "Revogada", disconnected: "Desconectada",
+};
+const isArchived = (connection: IntegrationConnection) => connection.status === "revoked" && Boolean(connection.archivedAt);
 
 const providerHelp: Record<Provider, string> = {
   meta: "Token de System User para validar e descobrir contas de anuncios.",
@@ -114,6 +120,9 @@ export function IntegrationsManager({
   const [form, setForm] = useState(emptyForm);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [message, setMessage] = useState(warning ?? "");
+  const [showArchived, setShowArchived] = useState(false);
+  const archivedCount = connections.filter(isArchived).length;
+  const visibleConnections = connections.filter(connection => showArchived || !isArchived(connection));
 
   const update = (field: keyof ConnectionForm, value: string) =>
     setForm((current) => ({ ...current, [field]: value }));
@@ -494,6 +503,37 @@ export function IntegrationsManager({
     }
   }
 
+  async function archiveConnection(connectionId: string, archived: boolean) {
+    if (archived && !window.confirm("Arquivar esta conexão? Ela sairá da lista principal. Produtos e histórico serão preservados.")) return;
+    setBusyId(connectionId);
+    setMessage("");
+    try {
+      let archivedAt: string | null = archived ? new Date().toISOString() : null;
+      if (!demoMode) {
+        const response = await fetch(`/api/connections/${connectionId}/archive`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ archived }),
+        });
+        const body = (await response.json().catch(() => null)) as
+          | { data?: { archivedAt: string | null }; error?: string } | null;
+        if (!response.ok || !body?.data) {
+          setMessage(body?.error ?? "Não foi possível salvar o arquivamento.");
+          return;
+        }
+        archivedAt = body.data.archivedAt;
+      }
+      setConnections(current => current.map(connection => connection.id === connectionId ? { ...connection, archivedAt } : connection));
+      setMessage(archived
+        ? "Conexão arquivada. Os produtos e o histórico foram preservados. Você pode encontrá-la em Mostrar conexões arquivadas."
+        : "Conexão restaurada na lista. A credencial continua revogada; edite a conexão para configurá-la novamente.");
+    } catch {
+      setMessage("Falha de rede ao salvar o arquivamento.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
     <div className="space-y-7">
       <header className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
@@ -519,13 +559,23 @@ export function IntegrationsManager({
       <Link href="/setup" className="inline-flex text-xs font-bold underline underline-offset-4">Ver passo a passo e requisitos de cada plataforma</Link>
 
       {message && (
-        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs font-medium text-blue-950">
+        <div role="status" className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs font-medium text-blue-950">
           {message}
         </div>
       )}
 
+      {archivedCount > 0 && (
+        <label className="flex items-center gap-2 text-xs font-bold">
+          <input type="checkbox" checked={showArchived} onChange={event => setShowArchived(event.target.checked)} />
+          Mostrar conexões arquivadas ({archivedCount})
+        </label>
+      )}
+      {visibleConnections.length === 0 && (
+        <p className="panel rounded-xl p-6 text-sm">Nenhuma conexão nesta lista. Crie uma conexão ou consulte as arquivadas.</p>
+      )}
+
       <section className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
-        {connections.map((connection) => {
+        {visibleConnections.map((connection) => {
           return (
           <article key={connection.id} className="panel rounded-[24px] p-5">
             <div className="mb-7 flex items-start justify-between">
@@ -561,14 +611,14 @@ export function IntegrationsManager({
                   connection.status === "disconnected" && "bg-slate-100 text-slate-700",
                 )}
               >
-                {connection.status}
+                {isArchived(connection) ? "Arquivada" : connectionStatusLabels[connection.status]}
               </span>
             </div>
 
             <div className="space-y-3 text-xs">
               <div className="flex justify-between border-b border-[var(--line)] pb-3">
                 <span className="text-[var(--muted)]">Credencial</span>
-                <span className="font-black tracking-[0.18em]">••••••••••••</span>
+                <span className="font-black">{connection.status === "revoked" ? "Revogada" : "••••••••••••"}</span>
               </div>
               <div className="flex justify-between border-b border-[var(--line)] pb-3">
                 <span className="text-[var(--muted)]">
@@ -625,7 +675,7 @@ export function IntegrationsManager({
             <div className="mt-5 grid grid-cols-2 gap-2">
               <button
                 type="button"
-                disabled={busyId === connection.id}
+                disabled={busyId === connection.id || isArchived(connection)}
                 onClick={() => openEditForm(connection)}
                 className="inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--line)] py-2.5 text-[10px] font-bold disabled:opacity-40"
               >
@@ -668,6 +718,16 @@ export function IntegrationsManager({
                 </button>
               )}
               {connection.status === "revoked" ? (
+                <>
+                <button
+                  type="button"
+                  disabled={busyId === connection.id}
+                  onClick={() => archiveConnection(connection.id, !isArchived(connection))}
+                  className="col-span-2 inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--line)] py-2.5 text-[10px] font-bold disabled:opacity-40"
+                >
+                  {isArchived(connection) ? <ArchiveRestore size={14} /> : <Archive size={14} />}
+                  {isArchived(connection) ? "Restaurar na lista" : "Arquivar conexão"}
+                </button>
                 <button
                   type="button"
                   disabled={busyId === connection.id}
@@ -676,6 +736,7 @@ export function IntegrationsManager({
                 >
                   <Trash2 size={14} /> Excluir definitivamente
                 </button>
+                </>
               ) : (
                 <button
                   type="button"

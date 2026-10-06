@@ -116,7 +116,7 @@ export async function DELETE(
     }
 
     const accountIds = (accounts ?? []).map((account) => account.id);
-    const [projectLinks, products, sales, metrics, syncRuns] = await Promise.all([
+    const [projectLinks, products, sales, metrics, syncRuns, forms] = await Promise.all([
       accountIds.length
         ? context.supabase
             .from("project_accounts")
@@ -141,6 +141,10 @@ export async function DELETE(
         .from("sync_runs")
         .select("id", { count: "exact", head: true })
         .eq("connection_id", connectionId),
+      context.supabase
+        .from("google_forms")
+        .select("id", { count: "exact", head: true })
+        .eq("connection_id", connectionId),
     ]);
 
     if (
@@ -148,7 +152,8 @@ export async function DELETE(
       products.error ||
       sales.error ||
       metrics.error ||
-      syncRuns.error
+      syncRuns.error ||
+      forms.error
     ) {
       throw new ApiError("Nao foi possivel validar os vinculos da conexao.", 503);
     }
@@ -157,11 +162,12 @@ export async function DELETE(
         (products.count ?? 0) +
         (sales.count ?? 0) +
         (metrics.count ?? 0) +
-        (syncRuns.count ?? 0) >
+        (syncRuns.count ?? 0) +
+        (forms.count ?? 0) >
       0
     ) {
       throw new ApiError(
-        "A conexao possui projetos, produtos ou vendas vinculados e nao pode ser excluida.",
+        `A exclusão definitiva está bloqueada pelo histórico: ${products.count ?? 0} produto(s), ${sales.count ?? 0} evento(s) de vendas, ${metrics.count ?? 0} registro(s) de tráfego, ${syncRuns.count ?? 0} sincronização(ões), ${forms.count ?? 0} formulário(s) e ${projectLinks.count ?? 0} vínculo(s) de contas. Projetos excluídos preservam esses registros. Use “Arquivar conexão” para retirá-la da lista sem apagar o histórico.`,
         409,
       );
     }

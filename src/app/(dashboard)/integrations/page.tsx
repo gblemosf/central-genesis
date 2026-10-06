@@ -27,7 +27,7 @@ const googleOAuthMessages: Record<string, string> = {
 };
 
 export default async function IntegrationsPage({ searchParams }: IntegrationsPageProps) {
-  const connections = await getConnections();
+  const connections = await getConnections({ includeArchived: true });
   const params = await searchParams;
   const googleFormsStatus = firstParam(params?.googleForms);
   const oauthMessage = googleFormsStatus && Object.hasOwn(googleOAuthMessages, googleFormsStatus)
