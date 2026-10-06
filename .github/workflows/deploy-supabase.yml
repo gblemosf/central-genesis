@@ -23,6 +23,7 @@ jobs:
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
       SUPABASE_PROJECT_ID: hrcxlljvoemiaqhkihqp
     steps:
       - uses: actions/checkout@v4
@@ -49,7 +50,11 @@ jobs:
 
       - name: Apply pending migrations
         if: steps.credentials.outputs.ready == 'true'
-        run: supabase db push --linked --yes
+        # GitHub-hosted runners use IPv4. Keep the password out of the URL and logs.
+        run: >-
+          supabase db push
+          --db-url "postgresql://postgres.$SUPABASE_PROJECT_ID@aws-0-us-west-2.pooler.supabase.com:5432/postgres?sslmode=require"
+          --yes
 
       - name: Deploy Edge Functions
         if: steps.credentials.outputs.ready == 'true'
