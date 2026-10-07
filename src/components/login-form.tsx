@@ -9,7 +9,7 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 export function LoginForm({ demoMode }: { demoMode: boolean }) {
   const router = useRouter();
-  const [mode, setMode] = useState<"sign-in" | "sign-up">("sign-in");
+  const [mode, setMode] = useState<"sign-in" | "sign-up" | "recover">("sign-in");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
@@ -49,6 +49,26 @@ export function LoginForm({ demoMode }: { demoMode: boolean }) {
     if (!supabase) {
       setError("Supabase ainda nao foi configurado.");
       setLoading(false);
+      return;
+    }
+
+    if (mode === "recover") {
+      try {
+        const { error: recoveryError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+          redirectTo: `${window.location.origin}/auth/recovery`,
+        });
+        if (recoveryError) {
+          setError(recoveryError.status === 429
+            ? "Muitas solicitações. Aguarde alguns minutos antes de tentar novamente."
+            : "Não foi possível enviar o e-mail de recuperação. Tente mais tarde ou fale com o administrador.");
+        } else {
+          setMessage("Se houver uma conta para este e-mail, você receberá um link para redefinir a senha. Confira também a pasta de spam e abra o link neste mesmo navegador.");
+        }
+      } catch {
+        setError("Não foi possível conectar. Confira sua conexão e tente novamente.");
+      } finally {
+        setLoading(false);
+      }
       return;
     }
 
@@ -102,8 +122,8 @@ export function LoginForm({ demoMode }: { demoMode: boolean }) {
     setLoading(false);
   }
 
-  function changeMode() {
-    setMode((current) => (current === "sign-in" ? "sign-up" : "sign-in"));
+  function changeMode(nextMode: "sign-in" | "sign-up" | "recover") {
+    setMode(nextMode);
     setPassword("");
     setPasswordConfirmation("");
     setError("");
@@ -143,10 +163,12 @@ export function LoginForm({ demoMode }: { demoMode: boolean }) {
             Area protegida
           </p>
           <h2 className="text-4xl font-black tracking-[-0.055em]">
-            {mode === "sign-in" ? "Entrar" : "Criar conta"}
+            {mode === "recover" ? "Recuperar senha" : mode === "sign-in" ? "Entrar" : "Criar conta"}
           </h2>
           <p className="mt-3 text-sm leading-6 text-white/42">
-            {mode === "sign-in"
+            {mode === "recover"
+              ? "Informe o e-mail da sua conta para receber um link de recuperação."
+              : mode === "sign-in"
               ? "Acesse projetos, integracoes e indicadores da operacao."
               : "Cadastre seu acesso interno com e-mail e senha."}
           </p>
@@ -163,7 +185,7 @@ export function LoginForm({ demoMode }: { demoMode: boolean }) {
                 onChange={(event) => setEmail(event.target.value)}
               />
             </label>
-            <label className="block space-y-2 text-xs font-bold">
+            {mode !== "recover" && <label className="block space-y-2 text-xs font-bold">
               Senha
               <input
                 className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none focus:border-[var(--signal)]/50"
@@ -173,7 +195,13 @@ export function LoginForm({ demoMode }: { demoMode: boolean }) {
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
               />
-            </label>
+            </label>}
+            {mode === "sign-in" && !demoMode && (
+              <button type="button" disabled={loading} onClick={() => changeMode("recover")}
+                className="text-xs font-bold text-[var(--signal)] hover:underline disabled:opacity-40">
+                Esqueci minha senha
+              </button>
+            )}
             {mode === "sign-up" && (
               <label className="block space-y-2 text-xs font-bold">
                 Confirmar senha
@@ -187,9 +215,9 @@ export function LoginForm({ demoMode }: { demoMode: boolean }) {
                 />
               </label>
             )}
-            {error && <p className="text-xs font-medium text-red-300">{error}</p>}
+            {error && <p role="alert" className="text-xs font-medium text-red-300">{error}</p>}
             {message && (
-              <p className="text-xs font-medium leading-5 text-[var(--signal)]">
+              <p role="status" className="text-xs font-medium leading-5 text-[var(--signal)]">
                 {message}
               </p>
             )}
@@ -199,16 +227,17 @@ export function LoginForm({ demoMode }: { demoMode: boolean }) {
               className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--signal)] py-3.5 text-xs font-black text-[var(--sidebar)] disabled:opacity-40"
             >
               {loading && <LoaderCircle size={15} className="animate-spin" />}
-              {mode === "sign-in" ? "Acessar a Central" : "Criar minha conta"}
+              {mode === "recover" ? "Enviar link de recuperação" : mode === "sign-in" ? "Acessar a Central" : "Criar minha conta"}
             </button>
           </form>
 
           {!demoMode && (
             <div className="mt-6 border-t border-white/8 pt-5 text-center text-xs text-white/48">
-              {mode === "sign-in" ? "Ainda nao possui acesso?" : "Ja possui uma conta?"}{" "}
+              {mode === "recover" ? "Lembrou sua senha?" : mode === "sign-in" ? "Ainda nao possui acesso?" : "Ja possui uma conta?"}{" "}
               <button
                 type="button"
-                onClick={changeMode}
+                disabled={loading}
+                onClick={() => changeMode(mode === "sign-in" ? "sign-up" : "sign-in")}
                 className="font-black text-[var(--signal)] hover:underline"
               >
                 {mode === "sign-in" ? "Criar conta" : "Entrar"}
