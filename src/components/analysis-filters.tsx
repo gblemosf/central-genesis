@@ -1,19 +1,21 @@
 "use client";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { dateInTimezone } from "@/lib/dates";
 import { periodPresets, presetPeriod, validAnalysisPeriod, type AnalysisFilter } from "@/lib/analysis-filters";
 
-export function AnalysisFilters({ value, onChange, products, hideProducts = false }: {
+export function AnalysisFilters({ value, onChange, products, hideProducts = false, context }: {
   value: AnalysisFilter; onChange: (value: AnalysisFilter) => void;
   products: { id: string; name: string }[];
   hideProducts?: boolean;
+  context?: ReactNode;
 }) {
   const [custom, setCustom] = useState(false);
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState({ start: value.start, end: value.end });
   const today = dateInTimezone(new Date());
   const ids = value.productIds ?? products.map((product) => product.id);
-  return <section className="panel space-y-4 rounded-[20px] p-5" aria-label="Filtros da análise">
+  return <section className="panel filter-bar space-y-3 rounded-2xl p-3 sm:p-4" aria-label="Filtros da análise">
+    {context && <div className="flex flex-wrap items-center gap-3 border-b border-[var(--line)] pb-3">{context}</div>}
     <div className="flex flex-wrap items-center gap-2">
       <span className="mr-2 text-xs font-bold">Período</span>
       {periodPresets.map(([key, label]) => {
@@ -48,7 +50,8 @@ export function AnalysisFilters({ value, onChange, products, hideProducts = fals
       <label>De<input className="field mt-1" type="date" value={draft.start} onChange={(event) => setDraft({ ...draft, start: event.target.value })} /></label>
       <label>Até<input className="field mt-1" type="date" value={draft.end} onChange={(event) => setDraft({ ...draft, end: event.target.value })} /></label>
       <button type="button" className="rounded-xl bg-[var(--ink)] px-4 py-3 font-bold text-white disabled:opacity-40"
-        disabled={!validAnalysisPeriod(draft.start, draft.end)} onClick={() => onChange({ ...value, ...draft })}>Aplicar período</button>
+        disabled={!validAnalysisPeriod(draft.start, draft.end)} onClick={() => { onChange({ ...value, ...draft }); setCustom(false); }}>Aplicar período</button>
+      <button type="button" className="rounded-lg px-3 py-3 font-semibold" onClick={() => setCustom(false)}>Cancelar</button>
       {!validAnalysisPeriod(draft.start, draft.end) && <p>Escolha datas válidas, em ordem, com até 366 dias.</p>}
     </div>}
     <p className="text-xs text-[var(--muted)]">{value.start.split("-").reverse().join("/")} a {value.end.split("-").reverse().join("/")} · Inclui os dois dias · Horário de Brasília</p>

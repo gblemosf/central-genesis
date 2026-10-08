@@ -201,6 +201,7 @@ export function ProjectsList({
                       ROAS líquido registrado
                     </p>
                     <p className="mt-1 text-lg font-black">{available.revenue && available.traffic && totals.investment > 0 && totals.roas !== null ? `${totals.roas.toFixed(2)}x` : "Indisponível"}</p>
+                    {(!available.revenue || !available.traffic || totals.roas === null || totals.investment === 0) && <p className="mt-2 text-xs leading-5 text-[var(--muted)]">{!available.revenue ? "Faltam valores líquidos no período." : !available.traffic ? "Faltam dados de tráfego no período." : totals.investment === 0 ? "Sem investimento para calcular o retorno." : "A base precisa de conciliação."} <Link className="relative z-20 font-semibold underline underline-offset-4" href={`/projects/${project.id}?view=settings`}>Revisar fontes</Link></p>}
                   </div>
                 </div>
 

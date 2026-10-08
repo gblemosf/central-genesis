@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Download, LoaderCircle, RefreshCw, Search } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Download, LoaderCircle, RefreshCw, Search, X } from "lucide-react";
 import {
   csvDocument,
   summarizeSales,
@@ -74,15 +74,20 @@ export function ProjectGrid({
   rows,
   empty = "Nenhum registro encontrado.",
   sticky = true,
+  onInspect,
 }: {
   headers: ReactNode[];
   rows: { id: string; cells: ReactNode[] }[];
   empty?: string;
   sticky?: boolean;
+  onInspect?: (id: string) => void;
 }) {
   return (
     <div
-      className="overflow-auto rounded-2xl border border-[var(--line)] bg-white/60"
+      className="overflow-auto rounded-xl border border-[var(--line)] bg-white/60"
+      tabIndex={0}
+      role="region"
+      aria-label="Tabela de registros"
       style={{ maxHeight: "65vh" }}
     >
       <table className="w-full border-separate border-spacing-0 text-left text-xs">
@@ -99,11 +104,12 @@ export function ProjectGrid({
                 </div>
               </th>
             ))}
+            {onInspect && <th scope="col" className="border-b border-[var(--line)] px-3 py-3">Detalhes</th>}
           </tr>
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={row.id} className="group hover:bg-violet-50/70">
+            <tr key={row.id} className="group even:bg-black/[0.015] hover:bg-violet-50/70">
               {row.cells.map((cell, index) => (
                 <td
                   key={index}
@@ -116,6 +122,7 @@ export function ProjectGrid({
                   </div>
                 </td>
               ))}
+              {onInspect && <td className="border-b border-[var(--line)] px-3 py-3 align-top"><button type="button" onClick={() => onInspect(row.id)} className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-xs font-semibold">Ver detalhes</button></td>}
             </tr>
           ))}
         </tbody>
@@ -182,6 +189,21 @@ function saleCells(sale: SaleRow, exporting = false): ReactNode[] {
   ];
 }
 
+function SaleDetails({ sale, onClose }: { sale: SaleRow; onClose: () => void }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const element = dialog.current;
+    element?.showModal();
+    return () => element?.close();
+  }, []);
+  const cells = saleCells(sale);
+  return <dialog ref={dialog} onClose={onClose} aria-labelledby="sale-details-title" className="fixed inset-0 m-auto max-h-[85dvh] w-[calc(100%-2rem)] max-w-3xl overflow-auto rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-0 text-[var(--ink)] shadow-xl">
+    <header className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-[var(--line)] bg-[var(--paper)] p-5"><div><h2 id="sale-details-title" className="text-lg font-bold">Detalhes da venda</h2><p className="mt-1 break-all text-xs text-[var(--muted)]">{sale.transaction} · {sale.provider}</p></div><button type="button" autoFocus onClick={onClose} aria-label="Fechar detalhes da venda" className="rounded-lg border border-[var(--line)] p-2"><X size={18} /></button></header>
+    <dl className="grid gap-4 p-5 sm:grid-cols-2">{salesHeaders.map((label, index) => <div key={label} className="min-w-0 border-b border-[var(--line)] pb-3"><dt className="text-xs text-[var(--muted)]">{label}</dt><dd className="mt-1 break-words text-sm font-medium">{cells[index] === null || cells[index] === undefined || cells[index] === "" ? "Não informado" : cells[index]}</dd></div>)}</dl>
+    <p className="px-5 pb-5 text-xs text-[var(--muted)]">Líquido após taxas e repasse ao produtor são valores distintos. Nenhum valor ausente foi estimado.</p>
+  </dialog>;
+}
+
 export function ProjectOperationsPanel({
   projectId,
   view,
@@ -197,7 +219,8 @@ export function ProjectOperationsPanel({
 }) {
   const period = useMemo(() => ({ start: filter.start, end: filter.end }), [filter.start, filter.end]);
   const [query, setQuery] = useState("");
-  const [columns, setColumns] = useState<number[]>([0, 2, 3, 4, 9, 10, 13]);
+  const [columns, setColumns] = useState<number[]>([0, 2, 3, 4, 9, 13, 23]);
+  const [inspectedId, setInspectedId] = useState<string | null>(null);
   const [status, setStatus] = useState("");
   const [currency, setCurrency] = useState("");
   const [loadedData, setData] = useState<ProjectOperations | null>(null);
@@ -440,6 +463,7 @@ export function ProjectOperationsPanel({
     page,
     Math.max(1, Math.ceil(allRows.length / pageSize)),
   );
+  const inspectedSale = filtered.sales.find(sale => sale.id === inspectedId);
   function exportRows() {
     const rows =
       view === "sales" || view === "results"
@@ -633,6 +657,7 @@ export function ProjectOperationsPanel({
           )}
           {view === "sales" && <details className="rounded-xl border border-[var(--line)] p-4">
             <summary className="text-xs font-bold">Colunas da tabela · {columns.length} de {salesHeaders.length}</summary>
+            <div className="mt-3 flex flex-wrap gap-2">{Object.entries({ Essenciais: [0, 2, 3, 4, 9, 13, 23], Financeiro: [0, 1, 2, 3, 7, 8, 9, 10, 23], Rastreamento: [0, 1, 2, 11, 13, 14, 15, 16, 17, 18, 23] }).map(([label, selection]) => <button key={label} type="button" onClick={() => setColumns(selection)} className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-xs font-semibold">{label}</button>)}</div>
             <p className="mt-3 text-xs text-[var(--muted)]">O CSV sempre inclui todas as colunas, independentemente desta seleção.</p>
             <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{salesHeaders.map((label, index) => <label key={label} className="flex items-center gap-2 text-xs">
               <input type="checkbox" checked={columns.includes(index)} disabled={columns.length === 1 && columns.includes(index)} onChange={(event) => setColumns(event.target.checked ? [...columns, index] : columns.filter((value) => value !== index))} />{label}
@@ -640,6 +665,7 @@ export function ProjectOperationsPanel({
             <button type="button" className="mt-4 text-xs font-bold underline" onClick={() => setColumns(salesHeaders.map((_, index) => index))}>Exibir todas</button>
           </details>}
           <ProjectGrid
+            onInspect={view === "sales" || view === "results" ? setInspectedId : undefined}
             headers={view === "sales" ? headers.filter((_, index) => columns.includes(index)) : headers}
             rows={allRows.slice(
               (currentPage - 1) * pageSize,
@@ -647,6 +673,7 @@ export function ProjectOperationsPanel({
             ).map((row) => view === "sales" ? { ...row, cells: row.cells.filter((_, index) => columns.includes(index)) } : row)}
             empty="Nenhum registro neste filtro. Confira o período e o vínculo dos produtos em Configurar → Produtos e funil."
           />
+          {inspectedSale && <SaleDetails key={inspectedSale.id} sale={inspectedSale} onClose={() => setInspectedId(null)} />}
           <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-[var(--muted)]">
             <span>
               {allRows.length} registros • Página {currentPage} de{" "}

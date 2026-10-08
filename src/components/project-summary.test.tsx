@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ProjectSummary } from "./project-summary";
@@ -134,7 +135,7 @@ it("saves only widget choices, restores their order and supports adding and remo
   render(<ProjectSummary {...props} />);
   await waitFor(() =>
     expect(
-      screen
+      within(screen.getByRole("region", { name: "Blocos do resumo" }))
         .getAllByRole("heading", { level: 3 })
         .map((node) => node.textContent),
     ).toEqual(["Fontes e pendências", "Composição financeira"]),

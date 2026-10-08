@@ -36,6 +36,7 @@ import {
 import { getProjectReadiness } from "@/lib/project-readiness";
 import type { WorkspaceView } from "@/lib/workspace-navigation";
 import { formatCurrency, formatNumber, formatPercent } from "@/lib/utils";
+import { DataHelp, MetricCard } from "@/components/metric-card";
 
 function Values({ items }: { items: [string, ReactNode][] }) {
   return (
@@ -372,25 +373,20 @@ export function ProjectSummary({
       <>
         {data && sales.length ? (
           <>
-            <Values
-              items={[
-                ["Bruto aprovado", money(summary.gross)],
-                ["Reembolsos", money(summary.refunded)],
-                ["Taxas da plataforma (saldo)", money(summary.fee)],
-                ["Líquido após taxas", money(summary.afterFees)],
-                ["Repasse ao produtor", money(summary.payout)],
-              ]}
-            />
-            <p className="mt-4 text-xs leading-5 text-[var(--muted)]">
+            <ol className="space-y-2" aria-label="Do bruto ao líquido">
+              {[["Bruto aprovado", summary.gross], ["Reembolsos", summary.refunded], ["Taxas da plataforma (saldo)", summary.fee], ["Líquido após taxas", summary.afterFees]].map(([label, value], index) => <li key={String(label)} className={`flex items-center gap-3 rounded-xl p-3 ${index === 3 ? "bg-emerald-50 font-bold" : "bg-black/[0.025]"}`}><span className="grid size-6 shrink-0 place-items-center rounded-full bg-white text-xs text-[var(--muted)]">{index + 1}</span><span className="flex-1 text-xs">{label}</span><span className="text-sm font-bold tabular-nums">{money(value as number | null)}</span></li>)}
+            </ol>
+            <div className="my-4 rounded-xl border border-[var(--line)] p-3"><Values items={[["Repasse ao produtor", money(summary.payout)]]} /></div>
+            <DataHelp title="Líquido e repasse: qual a diferença?"><p>
               O líquido após taxas e o repasse descontam os reembolsos
               registrados. O repasse considera a divisão entre participantes;
               não representa todo o líquido da venda.
-            </p>
+            </p></DataHelp>
           </>
         ) : (
           <p className="text-sm text-[var(--muted)]">{operationState}</p>
         )}
-        {link("sales", "Conferir transações")}
+        <div className="flex flex-wrap gap-x-5">{link("sales", "Conferir transações")}{link("financial", "Ver mídia, custos e saldo")}</div>
       </>
     ),
     traffic: (
@@ -566,13 +562,14 @@ export function ProjectSummary({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-black tracking-tight">
-            Seu painel do projeto
+            Resultado do período
           </h2>
           <p className="mt-1 text-xs text-[var(--muted)]">
-            Escolha os blocos que ajudam na sua rotina.
+            {data ? `Vendas consultadas em ${new Date(data.loadedAt).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}` : operationError || demoMode || project.legacy ? "Consulte a disponibilidade em cada indicador." : "Conferindo os dados da seleção"}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <button type="button" onClick={onSyncMeta} disabled={syncing || (!demoMode && !catalog.linkedMetaAccountId)} className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] bg-white px-3 py-3 text-xs font-bold disabled:opacity-40"><RefreshCw size={14} className={syncing ? "animate-spin" : ""} />Atualizar tráfego da Meta</button>
           {currencies.length > 1 && (
             <label className="flex items-center gap-2 text-xs">
               Moeda
@@ -664,31 +661,10 @@ export function ProjectSummary({
         className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
         aria-label="Indicadores principais"
       >
-        {[
-          [
-            "Compras aprovadas",
-            data ? String(summary.transactions) : "Indisponível",
-          ],
-          [
-            "Líquido após taxas",
-            data && sales.length ? money(summary.afterFees) : "Sem dados",
-          ],
-          [
-            "Repasse ao produtor",
-            data && sales.length ? money(summary.payout) : "Sem dados",
-          ],
-          [
-            "Investimento do projeto",
-            hasTraffic ? formatCurrency(totals.investment) : "Sem dados",
-          ],
-        ].map(([label, value]) => (
-          <article key={label} className="panel rounded-2xl p-5">
-            <p className="text-xs text-[var(--muted)]">{label}</p>
-            <p className="mt-3 text-2xl font-black tracking-tight tabular-nums">
-              {value}
-            </p>
-          </article>
-        ))}
+        <MetricCard label="Compras aprovadas" value={data ? String(summary.transactions) : operationError || demoMode || project.legacy ? "Indisponível" : "Consultando…"} hint={data ? "Compras únicas; adicionais não contam como outra compra." : operationState} action={{ label: "Ver compras", onClick: () => onNavigate("sales") }} unavailable={!data} />
+        <MetricCard label="Líquido após taxas" value={data && sales.length ? money(summary.afterFees) : "Sem dados"} hint={data && sales.length ? summary.afterFees === null ? "A plataforma não informou o líquido de todas as compras." : "Desconta taxas e reembolsos registrados; antes de mídia." : operationState} action={{ label: "Conferir receita", onClick: () => onNavigate("results") }} unavailable={!data || !sales.length || summary.afterFees === null} />
+        <MetricCard label="Repasse ao produtor" value={data && sales.length ? money(summary.payout) : "Sem dados"} hint={data && sales.length ? summary.payout === null ? "Há compras sem repasse informado pela plataforma." : "Parcela destinada ao produtor após a divisão da venda." : operationState} accent="var(--violet)" action={{ label: "Conferir repasses", onClick: () => onNavigate("results") }} unavailable={!data || !sales.length || summary.payout === null} />
+        <MetricCard label="Investimento do projeto" value={hasTraffic ? formatCurrency(totals.investment) : !ready && !error ? "Consultando…" : "Sem dados"} hint={hasTraffic ? "Gasto das contas vinculadas; não é dividido por produto." : error || "Confira as contas vinculadas e a sincronização da Meta."} accent="var(--coral)" action={{ label: hasTraffic ? "Ver tráfego diário" : "Revisar contas Meta", onClick: () => onNavigate(hasTraffic ? "metrics" : "settings") }} unavailable={!hasTraffic} />
       </section>
       {analytics.dataSources.csvDailyRows > 0 && (
         <p className="rounded-xl bg-blue-50 p-4 text-xs leading-5">
@@ -760,15 +736,6 @@ export function ProjectSummary({
             ? `Vendas consultadas em ${new Date(data.loadedAt).toLocaleString("pt-BR")}. Atualização a cada minuto enquanto esta tela estiver visível.`
             : "Os blocos indicam quando a fonte não possui dados disponíveis."}
         </p>
-        <button
-          type="button"
-          onClick={onSyncMeta}
-          disabled={syncing || (!demoMode && !catalog.linkedMetaAccountId)}
-          className="inline-flex items-center gap-2 rounded-lg border border-[var(--line)] px-3 py-2 font-bold disabled:opacity-40"
-        >
-          <RefreshCw size={14} className={syncing ? "animate-spin" : ""} />
-          Atualizar tráfego da Meta
-        </button>
       </div>
     </div>
   );

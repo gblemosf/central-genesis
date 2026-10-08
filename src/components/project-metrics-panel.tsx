@@ -37,6 +37,7 @@ import { filterProductMetrics, type AnalysisFilter } from "@/lib/analysis-filter
 import { formatCurrency, formatNumber, formatPercent } from "@/lib/utils";
 import Link from "next/link";
 import type { MetricView } from "@/lib/workspace-navigation";
+import { DataHelp } from "@/components/metric-card";
 
 const decimalFormatter = new Intl.NumberFormat("pt-BR", {
   minimumFractionDigits: 0,
@@ -732,17 +733,14 @@ export function ProjectMetricsPanel({
       {view === "financial" && (
         hasRevenueMetrics ? (
         <div className="space-y-4">
-          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+          <section className="grid gap-3 sm:grid-cols-3">
             {[
-              ["Líquido registrado após taxas", aggregate.revenueAvailable === false ? "N/D" : formatCurrency(financial.revenue)],
-              ["Custos registrados", aggregate.trafficAvailable === false ? "N/D" : formatCurrency(financial.totalCost)],
-              ["Resultado com custos registrados", productSubset || financial.profit === null ? "N/D" : formatCurrency(financial.profit)],
               ["Margem registrada", productSubset || financial.margin === null ? "N/D" : formatPercent(financial.margin)],
               ["ROAS líquido de mídia", productSubset || financial.roas === null ? "N/D" : `${financial.roas.toFixed(2)}x`],
               ["ROI com custos registrados", productSubset || financial.roi === null ? "N/D" : `${financial.roi.toFixed(2)}x`],
             ].map(([label, value]) => (
               <article key={label} className="panel rounded-[20px] p-5">
-                <p className="text-[9px] font-bold uppercase tracking-wider text-[var(--muted)]">
+                <p className="text-xs font-semibold text-[var(--muted)]">
                   {label}
                 </p>
                 <p className="mt-3 text-xl font-black tracking-[-0.04em]">{value}</p>
@@ -750,7 +748,14 @@ export function ProjectMetricsPanel({
             ))}
           </section>
 
-          <div className="space-y-2 rounded-xl bg-blue-50 p-4 text-xs leading-5"><p>O resultado considera somente receitas e custos registrados. Taxas contratuais, participação e despesas externas precisam ser informadas quando existirem. Os totais de despesas não são rateados ao mudar o período. Consulte Receita das vendas para conferir bruto, taxas e repasse ao produtor.</p><button type="button" onClick={() => setView("costs")} className="font-bold underline underline-offset-4">Revisar custos e regras</button></div>
+          <section aria-label="Do líquido ao saldo" className="panel rounded-2xl p-5">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><h2 className="text-base font-bold">Do líquido ao saldo</h2><button type="button" onClick={() => setView("costs")} className="rounded-lg border border-[var(--line)] px-3 py-2 text-xs font-semibold">Revisar custos e regras</button></div>
+            <ol className="grid gap-3 sm:grid-cols-3">
+              {[["1 · Líquido após taxas", aggregate.revenueAvailable === false ? "Indisponível" : formatCurrency(financial.revenue)], ["2 · Custos, incluindo mídia", aggregate.trafficAvailable === false ? "Indisponível" : formatCurrency(financial.totalCost)], ["3 · Saldo com custos registrados", productSubset || financial.profit === null ? "Indisponível" : formatCurrency(financial.profit)]].map(([label, value]) => <li key={label} className="rounded-xl bg-black/[0.03] p-4"><p className="text-xs text-[var(--muted)]">{label}</p><p className="mt-2 text-lg font-bold tabular-nums">{value}</p></li>)}
+            </ol>
+            {productSubset && <p className="mt-3 text-xs text-amber-900">Selecione todos os produtos para calcular o saldo: os custos pertencem ao projeto inteiro.</p>}
+          </section>
+          <DataHelp title="O que entra neste resultado"><p>O resultado considera somente receitas e custos registrados. Taxas contratuais, participação e despesas externas precisam ser informadas quando existirem. Os totais de despesas não são rateados ao mudar o período. Consulte Receita das vendas para conferir bruto, taxas e repasse ao produtor.</p></DataHelp>
 
           <section className="grid gap-4 xl:grid-cols-2">
             <article className="panel rounded-[24px] p-6">

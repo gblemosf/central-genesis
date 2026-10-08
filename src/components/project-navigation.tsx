@@ -9,6 +9,7 @@ import {
   Users,
   Settings2,
   Wallet,
+  Plus,
 } from "lucide-react";
 import {
   workspaceSections,
@@ -62,7 +63,7 @@ export function ProjectNavigation({
           aria-label={`Seções de ${current.label}`}
           className="flex flex-wrap gap-2"
         >
-          {current.views.map(([view, label]) => (
+          {current.views.filter(([view]) => view !== "costs").map(([view, label]) => (
             <button
               key={view}
               type="button"
@@ -73,9 +74,10 @@ export function ProjectNavigation({
               {label}
             </button>
           ))}
+          {current.id === "finance" && <button type="button" aria-current={value === "costs" ? "page" : undefined} onClick={() => onChange("costs")} className={`ml-auto inline-flex items-center gap-1 rounded-lg border border-[var(--line)] px-3 py-2.5 text-xs font-semibold ${value === "costs" ? "bg-[var(--ink)] text-white" : "bg-white"}`}><Plus size={14} /> Cadastrar custos</button>}
         </nav>
       )}
-      <p className="max-w-4xl text-xs leading-5 text-[var(--muted)]">{workspaceDescriptions[value]}</p>
+      <details className="text-xs leading-5 text-[var(--muted)]"><summary className="w-fit cursor-pointer">Sobre esta seção</summary><p className="mt-2 max-w-4xl">{workspaceDescriptions[value]}</p></details>
     </div>
   );
 }

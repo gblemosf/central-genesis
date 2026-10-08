@@ -12,12 +12,11 @@ export const workspaceSections = [
     views: [
       ["sales", "Compras"],
       ["recovery", "Recuperação"],
-      ["history", "Importar histórico Hotmart"],
     ],
   },
   {
     id: "marketing",
-    label: "Divulgação",
+    label: "Tráfego e origens",
     views: [
       ["origins", "Origens e UTMs"],
       ["metrics", "Tráfego diário"],
@@ -39,7 +38,6 @@ export const workspaceSections = [
       ["financial", "Custos e saldo"],
       ["costs", "Cadastrar custos"],
       ["planning", "Projeções"],
-      ["assumptions", "Configurar projeções"],
     ],
   },
   {
@@ -50,6 +48,8 @@ export const workspaceSections = [
       ["products", "Produtos e funil"],
       ["forms-setup", "Conectar formulários"],
       ["imports", "Importar CSV"],
+      ["history", "Importar histórico Hotmart"],
+      ["assumptions", "Configurar projeções"],
     ],
   },
 ] as const;
@@ -69,7 +69,7 @@ export type WorkspaceSection = (typeof workspaceSections)[number]["id"];
 
 export const workspaceDescriptions: Record<WorkspaceView, string> = {
   overview: "Acompanhe os indicadores do projeto. Escolha período e produtos para aprofundar a análise.",
-  sales: "Consulte compras e valores por transação. Para buscar períodos anteriores, use Importar histórico Hotmart.",
+  sales: "Consulte compras e valores por transação. O histórico anterior pode ser importado em Configurar.",
   recovery: "Acompanhe tentativas de compra e recuperações identificadas nos eventos recebidos.",
   history: "Escolha o produto e o período que deseja buscar na Hotmart. A consulta continua com a tela fechada quando o agendador está ativo.",
   origins: "Compare páginas, canais e UTMs das vendas. Informações não enviadas pela plataforma permanecem sem atribuição.",

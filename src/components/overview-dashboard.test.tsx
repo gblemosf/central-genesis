@@ -6,7 +6,7 @@ import type { DailyMetric, ProjectSummary } from "@/lib/domain";
 import { OverviewDashboard } from "./overview-dashboard";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn() }) }));
-vi.mock("@/components/analysis-filters", () => ({ AnalysisFilters: () => null }));
+vi.mock("@/components/analysis-filters", () => ({ AnalysisFilters: ({ context }: { context?: ReactNode }) => <>{context}</> }));
 vi.mock("recharts", () => {
   const Container = ({ children }: { children?: ReactNode }) => <div>{children}</div>;
   const Chart = ({ children }: { children?: ReactNode }) => <svg>{children}</svg>;

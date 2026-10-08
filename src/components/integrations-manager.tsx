@@ -578,7 +578,7 @@ export function IntegrationsManager({
         {visibleConnections.map((connection) => {
           return (
           <article key={connection.id} className="panel rounded-[24px] p-5">
-            <div className="mb-7 flex items-start justify-between">
+            <div className="mb-5 flex items-start justify-between gap-2">
               <div className="flex items-center gap-3">
                 <div
                   className={cn(
@@ -637,9 +637,9 @@ export function IntegrationsManager({
                 </span>
               </div>
               <div className="flex justify-between pb-2">
-                <span className="text-[var(--muted)]">Ultima verificacao</span>
-                <span className="font-black">
-                  {connection.lastVerifiedAt ? "Verificada" : "Pendente"}
+                <span className="text-[var(--muted)]">Última verificação</span>
+                <span className="text-right font-semibold">
+                  {connection.lastVerifiedAt ? new Date(connection.lastVerifiedAt).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }) : "Ainda não verificada"}
                 </span>
               </div>
               {connection.provider === "hubla" && (
@@ -717,6 +717,7 @@ export function IntegrationsManager({
                   <RefreshCw size={14} /> Confirmar webhook
                 </button>
               )}
+              <details className="col-span-2 order-last mt-2 border-t border-[var(--line)] pt-3"><summary className="w-fit cursor-pointer text-xs text-[var(--muted)]">Gerenciar acesso e arquivamento</summary><div className="mt-3 grid gap-2">
               {connection.status === "revoked" ? (
                 <>
                 <button
@@ -747,6 +748,7 @@ export function IntegrationsManager({
                   <X size={14} /> Revogar credencial
                 </button>
               )}
+              </div></details>
               {connection.provider === "meta" && connection.status !== "revoked" && (
                 <button
                   type="button"

@@ -4,17 +4,14 @@ import Link from "next/link";
 import {
   ArrowUpRight,
   ArrowRight,
-  BadgeDollarSign,
-  CircleDollarSign,
   Plus,
-  Radar,
   RefreshCw,
   ShoppingBag,
-  TrendingUp,
 } from "lucide-react";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { AnalysisFilters } from "@/components/analysis-filters";
+import { DataHelp, MetricCard } from "@/components/metric-card";
 import {
   Area,
   AreaChart,
@@ -54,7 +51,7 @@ interface OverviewDashboardProps {
 
 const statusLabel = {
   connected: "Conectada",
-  attention: "Atencao",
+  attention: "Atenção",
   disconnected: "Desconectada",
   revoked: "Revogada",
 };
@@ -100,7 +97,8 @@ export function OverviewDashboard({
       label: "Líquido registrado após taxas",
       value: revenueAvailable ? formatCurrency(totals.revenue) : "Indisponível",
       hint: visibleProjects.some(project => project.qualityWarnings?.length) ? "Base parcial: recebimentos pendentes abaixo" : salesAvailable ? `${formatNumber(totals.coreSales)} vendas registradas do produto de entrada` : "Quantidade de vendas indisponível",
-      icon: CircleDollarSign,
+      view: "results",
+      available: revenueAvailable,
       color: "var(--mint)",
     },
     {
@@ -109,14 +107,16 @@ export function OverviewDashboard({
       hint: trafficAvailable
         ? totals.ctr !== null ? `${formatPercent(totals.ctr)} CTR consolidado` : "Sem impressões para calcular CTR"
         : "Tráfego incompleto no período",
-      icon: Radar,
+      view: "metrics",
+      available: trafficAvailable,
       color: "var(--coral)",
     },
     {
       label: "Saldo após mídia",
       value: complete && totals.profit !== null ? formatCurrency(totals.profit) : "Indisponível",
       hint: complete ? "Líquido após taxas menos mídia; não representa lucro" : "Confira os projetos com dados indisponíveis abaixo",
-      icon: BadgeDollarSign,
+      view: "financial",
+      available: complete && totals.profit !== null,
       color: totals.profit !== null && totals.profit >= 0 ? "var(--signal)" : "var(--coral)",
     },
     {
@@ -124,8 +124,9 @@ export function OverviewDashboard({
       value: complete && totals.investment > 0 && totals.roas !== null ? `${totals.roas.toFixed(2)}x` : "Indisponível",
       hint: trafficAvailable && salesAvailable && totals.coreSales > 0 && totals.cpa !== null
         ? `Mídia por venda de entrada: ${formatCurrency(totals.cpa)} · inclui orgânicas`
-        : "Depende de líquido e investimento disponíveis",
-      icon: TrendingUp,
+        : complete && totals.investment === 0 ? "Sem investimento no período: não há divisor para o ROAS" : "Depende de líquido e investimento disponíveis",
+      view: "financial",
+      available: complete && totals.investment > 0 && totals.roas !== null,
       color: "var(--violet)",
     },
   ];
@@ -144,19 +145,6 @@ export function OverviewDashboard({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Link href="/setup" className="inline-flex h-11 items-center gap-2 rounded-xl border border-[var(--line)] bg-white px-4 text-xs font-bold">Passo a passo <ArrowRight size={14} /></Link>
-          <select
-            aria-label="Projeto na visão geral"
-            value={selectedProject}
-            onChange={(event) => setSelectedProject(event.target.value)}
-            className="field min-w-48 bg-[var(--paper)] text-sm font-semibold"
-          >
-            <option value="all">Todos os projetos ativos</option>
-            {activeProjects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.name}
-              </option>
-            ))}
-          </select>
           <Link
             href="/projects/new"
             className="inline-flex h-11 items-center gap-2 rounded-xl bg-[var(--ink)] px-4 text-sm font-bold text-white transition hover:-translate-y-0.5"
@@ -166,7 +154,9 @@ export function OverviewDashboard({
         </div>
       </header>
 
-      <AnalysisFilters value={{ ...period, productIds: null }} products={[]} hideProducts onChange={(value) => startTransition(() => router.replace(`/overview?${new URLSearchParams({ start: value.start, end: value.end })}`, { scroll: false }))} />
+      <AnalysisFilters value={{ ...period, productIds: null }} products={[]} hideProducts
+        context={<><label className="flex w-full min-w-0 items-center gap-3 text-xs font-semibold sm:w-auto sm:flex-1">Projeto<select aria-label="Projeto na visão geral" value={selectedProject} onChange={(event) => setSelectedProject(event.target.value)} className="field max-w-sm text-sm"><option value="all">Todos os projetos ativos</option>{activeProjects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label><span className="text-xs text-[var(--muted)]">{visibleProjects.length} projeto(s) nesta análise</span></>}
+        onChange={(value) => startTransition(() => router.replace(`/overview?${new URLSearchParams({ start: value.start, end: value.end })}`, { scroll: false }))} />
       {pending && <p role="status" className="rounded-xl bg-blue-50 p-4 text-sm">Atualizando o período. Aguarde para conferir os novos resultados.</p>}
       <div className={pending ? "pointer-events-none space-y-6 opacity-40" : "space-y-6"}>
 
@@ -180,47 +170,24 @@ export function OverviewDashboard({
         <p key={`${project.id}:${message}`} className="rounded-xl bg-amber-50 p-4 text-xs leading-5"><strong>{project.name} — base parcial.</strong> {message} Saldo e ROAS dependem dessa conciliação.</p>
       )))}
 
-      <section className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
-        {kpis.map((kpi, index) => {
-          const Icon = kpi.icon;
-          return (
-            <article
-              key={kpi.label}
-              className="panel rise-in relative overflow-hidden rounded-[22px] p-5"
-              style={{ animationDelay: `${index * 60}ms` }}
-            >
-              <div
-                className="absolute inset-x-0 top-0 h-1"
-                style={{ background: kpi.color }}
-              />
-              <div className="mb-7 flex items-start justify-between">
-                <p className="text-[11px] font-bold uppercase tracking-[0.13em] text-[var(--muted)]">
-                  {kpi.label}
-                </p>
-                <div className="grid size-9 place-items-center rounded-xl bg-black/[0.045]">
-                  <Icon size={17} />
-                </div>
-              </div>
-              <p className="text-2xl font-black tracking-[-0.04em] sm:text-3xl">
-                {kpi.value}
-              </p>
-              <p className="mt-2 text-xs text-[var(--muted)]">{kpi.hint}</p>
-            </article>
-          );
-        })}
+      <section aria-label="Indicadores principais" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {kpis.map(kpi => <MetricCard key={kpi.label} label={kpi.label} value={kpi.value} hint={kpi.hint} accent={kpi.color} unavailable={!kpi.available}
+          action={{ label: kpi.available ? "Conferir composição" : "Conferir fontes", href: visibleProjects.length === 1
+            ? `/projects/${visibleProjects[0].id}?${new URLSearchParams({ view: kpi.available ? kpi.view : "settings", start: period.start, end: period.end })}`
+            : missingSources.length ? "#overview-sources" : "#overview-projects" }} />)}
       </section>
 
       {missingSources.length > 0 && (
-        <div className="rounded-xl border border-amber-400/30 bg-amber-100/55 px-4 py-3 text-xs leading-5 text-amber-950">
+        <div id="overview-sources" className="scroll-mt-56 rounded-xl border border-amber-400/30 bg-amber-100/55 px-4 py-3 text-xs leading-5 text-amber-950">
           <p className="font-bold">Dados indisponíveis no período selecionado</p>
           <p>Os projetos abaixo continuam na seleção. Os totais que dependem dessas fontes ficam indisponíveis; ausência de registros não comprova valor zero.</p>
           <ul className="mt-2 list-inside list-disc">
-            {missingSources.map(project => <li key={project.id}><Link className="underline" href={`/projects/${project.id}?${new URLSearchParams({ start: period.start, end: period.end })}`}>{project.name}</Link>: {project.missing}.</li>)}
+            {missingSources.map(project => <li key={project.id}><Link className="underline" href={`/projects/${project.id}?${new URLSearchParams({ view: "settings", start: period.start, end: period.end })}`}>{project.name} — revisar fontes</Link>: {project.missing}.</li>)}
           </ul>
         </div>
       )}
 
-      <p className="text-xs leading-5 text-[var(--muted)]">Valores dos eventos recebidos ou importados; ainda não comprovam todo o histórico dos gateways. O líquido após taxas é anterior à divisão entre participantes. O gasto da Meta corresponde à última sincronização. ROAS e mídia por venda cruzam totais do período, incluindo vendas orgânicas; não são a atribuição da Meta. O saldo não considera custos externos nem a divisão entre parceiros.</p>
+      <DataHelp><p>Valores dos eventos recebidos ou importados; ainda não comprovam todo o histórico dos gateways. O líquido após taxas é anterior à divisão entre participantes. O gasto da Meta corresponde à última sincronização. ROAS e mídia por venda cruzam totais do período, incluindo vendas orgânicas; não são a atribuição da Meta. O saldo não considera custos externos nem a divisão entre parceiros.</p></DataHelp>
 
       {rows.length > 0 && <section className="grid gap-4 xl:grid-cols-[1.55fr_.8fr]">
         <article className="panel rounded-[24px] p-5 sm:p-6">
@@ -343,13 +310,13 @@ export function OverviewDashboard({
         </article>
       </section>}
 
-      <section className="grid gap-4 xl:grid-cols-[1.25fr_1fr]">
+      <section id="overview-projects" className="grid scroll-mt-56 gap-4 xl:grid-cols-[1.25fr_1fr]">
         <article className="panel rounded-[24px] p-5 sm:p-6">
           <div className="mb-5 flex items-center justify-between">
             <div>
               <p className="eyebrow">Carteira ativa</p>
               <h2 className="mt-2 text-xl font-black tracking-[-0.035em]">
-                Projetos em operacao
+                Projetos em operação
               </h2>
             </div>
             <Link
@@ -380,6 +347,7 @@ export function OverviewDashboard({
                     <p className="truncate text-sm font-extrabold">{project.name}</p>
                     <p className="truncate text-[11px] text-[var(--muted)]">
                       {project.expertName}
+                      <span className="mt-1 block">{project.lastSyncAt ? `Última sincronização: ${new Date(project.lastSyncAt).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}` : "Sincronização sem horário informado"}</span>
                     </p>
                   </div>
                   <div className="hidden text-right sm:block">
@@ -413,7 +381,7 @@ export function OverviewDashboard({
         <article className="panel rounded-[24px] p-5 sm:p-6">
           <div className="mb-5 flex items-center justify-between">
             <div>
-              <p className="eyebrow">Infraestrutura</p>
+              <p className="eyebrow">Fontes dos dados</p>
               <h2 className="mt-2 text-xl font-black tracking-[-0.035em]">
                 Estado das conexões
               </h2>
@@ -453,7 +421,7 @@ export function OverviewDashboard({
             href="/integrations"
             className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--line)] py-2.5 text-xs font-bold transition hover:bg-white"
           >
-            Gerenciar conexoes <ArrowUpRight size={14} />
+            Gerenciar conexões <ArrowUpRight size={14} />
           </Link>
         </article>
       </section>
