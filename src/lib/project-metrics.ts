@@ -3,6 +3,7 @@ import type {
   ProjectDailyMetric,
   ProjectMetricConfig,
 } from "@/lib/domain";
+import { calculateRecordedComparison } from "@/lib/metrics";
 
 function finiteNumber(value: unknown, fallback = 0) {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
@@ -246,6 +247,7 @@ export function calculateFinancialSummary(
     roas: comparisonAvailable && revenueAvailable && trafficAvailable && trafficInvestment > 0 ? revenue / trafficInvestment : null,
     roi: profit !== null && totalCost > 0 ? profit / totalCost : null,
     companyResult: profit !== null ? profit * (config.companySharePercent / 100) : null,
+    recordedComparison: calculateRecordedComparison(rows, totalCost - trafficInvestment),
   };
 }
 

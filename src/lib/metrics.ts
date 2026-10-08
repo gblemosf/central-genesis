@@ -65,6 +65,19 @@ export function calculatePerformance(
   };
 }
 
+// An intake backlog makes the recorded result provisional, not incalculable.
+// Keep this separate from reconciled comparisons used by CPA and projections.
+export function calculateRecordedComparison(rows: DailyMetric[], extraCosts = 0) {
+  const available = rows.length > 0 && rows.every(row =>
+    row.revenueAvailable !== false && row.trafficAvailable !== false);
+  const totals = calculatePerformance(rows, extraCosts);
+  return {
+    balance: available ? totals.revenue - totals.investment - extraCosts : null,
+    roas: available && totals.investment > 0 ? totals.revenue / totals.investment : null,
+    partial: available && rows.some(row => row.comparisonAvailable === false),
+  };
+}
+
 export function calculateFunnel(
   stages: FunnelStage[],
   mode: "cascade" | "base",

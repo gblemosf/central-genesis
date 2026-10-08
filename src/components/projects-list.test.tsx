@@ -28,3 +28,13 @@ it("preserva um líquido zero conhecido sem inventar ROAS quando não houve inve
   expect(article.getByText("Indisponível")).toBeTruthy();
   expect(article.getByText("Não definida")).toBeTruthy();
 });
+
+it("identifica o ROAS parcial no cartão do projeto com recebimentos pendentes", () => {
+  render(<ProjectsList projects={[{ ...project, dailyMetrics: [{ date: "2026-10-08", revenue: 300,
+    investment: 100, coreSales: 1, impressions: 0, clicks: 0, pageViews: 0, checkouts: 0,
+    revenueAvailable: true, trafficAvailable: true, comparisonAvailable: false }] }]} canManage={false} />);
+  const article = within(screen.getByText("Projeto").closest("article")!);
+  expect(article.getByText("ROAS líquido parcial")).toBeTruthy();
+  expect(article.getByText("3.00x")).toBeTruthy();
+  expect(article.getByText(/pode mudar após a conciliação/)).toBeTruthy();
+});

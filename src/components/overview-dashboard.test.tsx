@@ -26,14 +26,37 @@ const props = { connections: [], source: "live" as const, reportingDate: "2026-1
 function card(label: string) { return within(screen.getByText(label).closest("article")!); }
 
 describe("overview financial integrity", () => {
-  it("shows processed revenue but blocks conclusions while gateway deliveries are pending", () => {
+  it("shows partial balance and ROAS while retaining the gateway intake warning", () => {
     render(<OverviewDashboard {...props} projects={[{ ...project, qualityWarnings: ["Payt: recebimentos pendentes"],
       dailyMetrics: [{ ...metric, comparisonAvailable: false }] }]} />);
     expect(card("Líquido registrado após taxas").getByText(/1\.200,00/)).toBeTruthy();
     expect(card("Líquido registrado após taxas").getByText(/Base parcial/)).toBeTruthy();
+    expect(card("Saldo parcial após mídia").getByText(/200,00/)).toBeTruthy();
+    expect(card("ROAS líquido parcial").getByText("1.20x")).toBeTruthy();
+    expect(card("ROAS líquido parcial").getByText(/pode mudar após a conciliação/)).toBeTruthy();
+    expect(screen.getByText(/Payt: recebimentos pendentes/)).toBeTruthy();
+  });
+  it("marks the combined result as partial and updates it when switching projects", () => {
+    render(<OverviewDashboard {...props} projects={[project, { ...project, id: "pending", name: "Projeto pendente",
+      dailyMetrics: [{ ...metric, revenue: 300, investment: 100, comparisonAvailable: false }] }]} />);
+    expect(card("Saldo parcial após mídia").getByText(/400,00/)).toBeTruthy();
+    expect(card("ROAS líquido parcial").getByText("1.36x")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Projeto na visão geral"), { target: { value: "pending" } });
+    expect(card("ROAS líquido parcial").getByText("3.00x")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Projeto na visão geral"), { target: { value: "complete" } });
+    expect(card("ROAS líquido registrado").getByText("1.20x")).toBeTruthy();
+    expect(screen.queryByText("Saldo parcial após mídia")).toBeNull();
+  });
+
+  it("keeps unavailable sources blocked even with a pending intake and explains zero media", () => {
+    const pending = { ...project, dailyMetrics: [{ ...metric, comparisonAvailable: false, trafficAvailable: false }] };
+    const { rerender } = render(<OverviewDashboard {...props} projects={[pending]} />);
     expect(card("Saldo após mídia").getByText("Indisponível")).toBeTruthy();
     expect(card("ROAS líquido registrado").getByText("Indisponível")).toBeTruthy();
-    expect(screen.getByText(/Payt: recebimentos pendentes/)).toBeTruthy();
+    rerender(<OverviewDashboard {...props} projects={[{ ...project, dailyMetrics: [{ ...metric, comparisonAvailable: false, investment: 0 }] }]} />);
+    expect(card("Saldo parcial após mídia").getByText(/1\.200,00/)).toBeTruthy();
+    expect(card("ROAS líquido parcial").getByText("Indisponível")).toBeTruthy();
+    expect(card("ROAS líquido parcial").getByText(/não há divisor/)).toBeTruthy();
   });
   it("identifica os projetos que impedem o consolidado e mantém a seleção explícita", () => {
     render(<OverviewDashboard {...props} projects={[project, { ...project, id: "missing", name: "Projeto sem dados", dailyMetrics: [] }]} />);

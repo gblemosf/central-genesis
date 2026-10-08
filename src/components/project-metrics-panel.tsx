@@ -286,6 +286,7 @@ export function ProjectMetricsPanel({
   );
   const total = performance(dailyAggregate);
   const financial = calculateFinancialSummary(populatedRows, config);
+  const partialFinancial = !productSubset && financial.recordedComparison.partial;
   const productTotals = aggregate.productMetrics;
 
   const ticketProductId = resolved.ticketId;
@@ -736,7 +737,7 @@ export function ProjectMetricsPanel({
           <section className="grid gap-3 sm:grid-cols-3">
             {[
               ["Margem registrada", productSubset || financial.margin === null ? "N/D" : formatPercent(financial.margin)],
-              ["ROAS líquido de mídia", productSubset || financial.roas === null ? "N/D" : `${financial.roas.toFixed(2)}x`],
+              [partialFinancial ? "ROAS líquido parcial" : "ROAS líquido de mídia", productSubset || financial.recordedComparison.roas === null ? "N/D" : `${financial.recordedComparison.roas.toFixed(2)}x`],
               ["ROI com custos registrados", productSubset || financial.roi === null ? "N/D" : `${financial.roi.toFixed(2)}x`],
             ].map(([label, value]) => (
               <article key={label} className="panel rounded-[20px] p-5">
@@ -751,9 +752,10 @@ export function ProjectMetricsPanel({
           <section aria-label="Do líquido ao saldo" className="panel rounded-2xl p-5">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><h2 className="text-base font-bold">Do líquido ao saldo</h2><button type="button" onClick={() => setView("costs")} className="rounded-lg border border-[var(--line)] px-3 py-2 text-xs font-semibold">Revisar custos e regras</button></div>
             <ol className="grid gap-3 sm:grid-cols-3">
-              {[["1 · Líquido após taxas", aggregate.revenueAvailable === false ? "Indisponível" : formatCurrency(financial.revenue)], ["2 · Custos, incluindo mídia", aggregate.trafficAvailable === false ? "Indisponível" : formatCurrency(financial.totalCost)], ["3 · Saldo com custos registrados", productSubset || financial.profit === null ? "Indisponível" : formatCurrency(financial.profit)]].map(([label, value]) => <li key={label} className="rounded-xl bg-black/[0.03] p-4"><p className="text-xs text-[var(--muted)]">{label}</p><p className="mt-2 text-lg font-bold tabular-nums">{value}</p></li>)}
+              {[["1 · Líquido após taxas", aggregate.revenueAvailable === false ? "Indisponível" : formatCurrency(financial.revenue)], ["2 · Custos, incluindo mídia", aggregate.trafficAvailable === false ? "Indisponível" : formatCurrency(financial.totalCost)], [partialFinancial ? "3 · Saldo parcial com custos registrados" : "3 · Saldo com custos registrados", productSubset || financial.recordedComparison.balance === null ? "Indisponível" : formatCurrency(financial.recordedComparison.balance)]].map(([label, value]) => <li key={label} className="rounded-xl bg-black/[0.03] p-4"><p className="text-xs text-[var(--muted)]">{label}</p><p className="mt-2 text-lg font-bold tabular-nums">{value}</p></li>)}
             </ol>
             {productSubset && <p className="mt-3 text-xs text-amber-900">Selecione todos os produtos para calcular o saldo: os custos pertencem ao projeto inteiro.</p>}
+            {partialFinancial && <p className="mt-3 text-xs leading-5 text-amber-900">Saldo e ROAS parciais usam somente os valores registrados e podem mudar após a conciliação. Este saldo inclui os custos cadastrados; margem e ROI continuam aguardando a conciliação.</p>}
           </section>
           <DataHelp title="O que entra neste resultado"><p>O resultado considera somente receitas e custos registrados. Taxas contratuais, participação e despesas externas precisam ser informadas quando existirem. Os totais de despesas não são rateados ao mudar o período. Consulte Receita das vendas para conferir bruto, taxas e repasse ao produtor.</p></DataHelp>
 

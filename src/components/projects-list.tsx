@@ -13,7 +13,7 @@ import {
 import { useRouter } from "next/navigation";
 import { startTransition, useState } from "react";
 import type { ProjectSummary } from "@/lib/domain";
-import { calculatePerformance } from "@/lib/metrics";
+import { calculatePerformance, calculateRecordedComparison } from "@/lib/metrics";
 import { overviewDataAvailability } from "@/lib/overview";
 import { formatCurrency, formatPercent } from "@/lib/utils";
 
@@ -125,6 +125,7 @@ export function ProjectsList({
         <section className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
           {projects.map((project, index) => {
             const totals = calculatePerformance(project.dailyMetrics);
+            const comparison = calculateRecordedComparison(project.dailyMetrics);
             const available = overviewDataAvailability(project.dailyMetrics);
             const progress = available.revenue && project.monthlyTarget > 0
               ? Math.max(0, Math.min((totals.revenue / project.monthlyTarget) * 100, 100))
@@ -198,10 +199,10 @@ export function ProjectsList({
                   </div>
                   <div>
                     <p className="text-[9px] font-bold uppercase tracking-wider text-[var(--muted)]">
-                      ROAS líquido registrado
+                      {comparison.partial ? "ROAS líquido parcial" : "ROAS líquido registrado"}
                     </p>
-                    <p className="mt-1 text-lg font-black">{available.revenue && available.traffic && totals.investment > 0 && totals.roas !== null ? `${totals.roas.toFixed(2)}x` : "Indisponível"}</p>
-                    {(!available.revenue || !available.traffic || totals.roas === null || totals.investment === 0) && <p className="mt-2 text-xs leading-5 text-[var(--muted)]">{!available.revenue ? "Faltam valores líquidos no período." : !available.traffic ? "Faltam dados de tráfego no período." : totals.investment === 0 ? "Sem investimento para calcular o retorno." : "A base precisa de conciliação."} <Link className="relative z-20 font-semibold underline underline-offset-4" href={`/projects/${project.id}?view=settings`}>Revisar fontes</Link></p>}
+                    <p className="mt-1 text-lg font-black">{comparison.roas !== null ? `${comparison.roas.toFixed(2)}x` : "Indisponível"}</p>
+                    {(comparison.partial || comparison.roas === null) && <p className="mt-2 text-xs leading-5 text-[var(--muted)]">{!available.revenue ? "Faltam valores líquidos no período." : !available.traffic ? "Faltam dados de tráfego no período." : totals.investment === 0 ? "Sem investimento para calcular o retorno." : "Somente valores registrados; pode mudar após a conciliação."} <Link className="relative z-20 font-semibold underline underline-offset-4" href={`/projects/${project.id}?view=settings`}>Revisar fontes</Link></p>}
                   </div>
                 </div>
 

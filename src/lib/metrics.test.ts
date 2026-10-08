@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DailyMetric, FunnelStage } from "@/lib/domain";
-import { calculateFunnel, calculatePerformance } from "@/lib/metrics";
+import { calculateFunnel, calculatePerformance, calculateRecordedComparison } from "@/lib/metrics";
 
 describe("calculatePerformance", () => {
   it("calcula indicadores reais sem misturar estimativas de produto", () => {
@@ -55,6 +55,41 @@ describe("calculatePerformance", () => {
     expect(calculatePerformance(rows.map((row) => ({ ...row, comparisonAvailable: false })))).toMatchObject({
       revenue: 300, investment: 100, ctr: 5, profit: null, margin: null, roas: null, cpa: null, aov: null,
     });
+  });
+});
+
+describe("recorded comparisons", () => {
+  const row: DailyMetric = { date: "2026-10-08", investment: 21201.56, revenue: 8036.45,
+    impressions: 0, clicks: 0, pageViews: 0, checkouts: 0, coreSales: 0,
+    revenueAvailable: true, trafficAvailable: true, comparisonAvailable: false };
+
+  it("shows the recorded balance and ROAS as partial without enabling reconciled metrics", () => {
+    const result = calculateRecordedComparison([row]);
+    expect(result.partial).toBe(true);
+    expect(result.balance).toBeCloseTo(-13165.11);
+    expect(result.roas).toBeCloseTo(0.37905);
+    expect(calculatePerformance([row])).toMatchObject({ profit: null, roas: null, cpa: null });
+    expect(calculateRecordedComparison([{ ...row, comparisonAvailable: true }]).partial).toBe(false);
+  });
+
+  it("uses combined totals rather than averaging project ROAS, and includes registered costs only in balance", () => {
+    const result = calculateRecordedComparison([
+      { ...row, revenue: 300, investment: 100, comparisonAvailable: true },
+      { ...row, revenue: 900, investment: 900 },
+    ], 50);
+    expect(result).toEqual({ balance: 150, roas: 1.2, partial: true });
+  });
+
+  it("does not turn missing sources into zero or divide by zero", () => {
+    expect(calculateRecordedComparison([])).toEqual({ balance: null, roas: null, partial: false });
+    for (const missing of [{ revenueAvailable: false }, { trafficAvailable: false }]) {
+      expect(calculateRecordedComparison([row, { ...row, ...missing }]))
+        .toEqual({ balance: null, roas: null, partial: false });
+    }
+    expect(calculateRecordedComparison([{ ...row, revenue: 0, investment: 100 }]))
+      .toEqual({ balance: -100, roas: 0, partial: true });
+    expect(calculateRecordedComparison([{ ...row, revenue: 100, investment: 0 }]))
+      .toEqual({ balance: 100, roas: null, partial: true });
   });
 });
 

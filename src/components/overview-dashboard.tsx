@@ -27,7 +27,7 @@ import type {
   IntegrationConnection,
   ProjectSummary,
 } from "@/lib/domain";
-import { calculatePerformance } from "@/lib/metrics";
+import { calculatePerformance, calculateRecordedComparison } from "@/lib/metrics";
 import {
   buildOverviewDailySeries,
   connectionOperationalSummary,
@@ -83,6 +83,8 @@ export function OverviewDashboard({
   const trafficAvailable = projectPeriods.length > 0 && projectPeriods.every(project => project.available.traffic);
   const salesAvailable = projectPeriods.length > 0 && projectPeriods.every(project => project.available.sales);
   const complete = revenueAvailable && trafficAvailable;
+  const comparison = calculateRecordedComparison(rows);
+  const partial = complete && comparison.partial;
   const missingSources = projectPeriods.flatMap(({ project, available }) => {
     const missing = [
       !available.revenue && "líquido após taxas",
@@ -96,7 +98,7 @@ export function OverviewDashboard({
     {
       label: "Líquido registrado após taxas",
       value: revenueAvailable ? formatCurrency(totals.revenue) : "Indisponível",
-      hint: visibleProjects.some(project => project.qualityWarnings?.length) ? "Base parcial: recebimentos pendentes abaixo" : salesAvailable ? `${formatNumber(totals.coreSales)} vendas registradas do produto de entrada` : "Quantidade de vendas indisponível",
+      hint: visibleProjects.some(project => project.qualityWarnings?.length) ? "Base parcial: há recebimentos pendentes" : salesAvailable ? `${formatNumber(totals.coreSales)} vendas registradas do produto de entrada` : "Quantidade de vendas indisponível",
       view: "results",
       available: revenueAvailable,
       color: "var(--mint)",
@@ -112,21 +114,23 @@ export function OverviewDashboard({
       color: "var(--coral)",
     },
     {
-      label: "Saldo após mídia",
-      value: complete && totals.profit !== null ? formatCurrency(totals.profit) : "Indisponível",
-      hint: complete ? "Líquido após taxas menos mídia; não representa lucro" : "Confira os projetos com dados indisponíveis abaixo",
+      label: partial ? "Saldo parcial após mídia" : "Saldo após mídia",
+      value: complete && comparison.balance !== null ? formatCurrency(comparison.balance) : "Indisponível",
+      hint: partial ? "Somente valores registrados; pode mudar após a conciliação. Não representa lucro." : complete ? "Líquido após taxas menos mídia; não representa lucro" : "Confira os projetos com dados indisponíveis abaixo",
       view: "financial",
-      available: complete && totals.profit !== null,
-      color: totals.profit !== null && totals.profit >= 0 ? "var(--signal)" : "var(--coral)",
+      available: complete && comparison.balance !== null,
+      color: comparison.balance !== null && comparison.balance >= 0 ? "var(--signal)" : "var(--coral)",
     },
     {
-      label: "ROAS líquido registrado",
-      value: complete && totals.investment > 0 && totals.roas !== null ? `${totals.roas.toFixed(2)}x` : "Indisponível",
-      hint: trafficAvailable && salesAvailable && totals.coreSales > 0 && totals.cpa !== null
+      label: partial ? "ROAS líquido parcial" : "ROAS líquido registrado",
+      value: complete && comparison.roas !== null ? `${comparison.roas.toFixed(2)}x` : "Indisponível",
+      hint: complete && totals.investment === 0 ? "Sem investimento no período: não há divisor para o ROAS"
+        : partial ? "Líquido registrado dividido pela mídia; pode mudar após a conciliação."
+        : trafficAvailable && salesAvailable && totals.coreSales > 0 && totals.cpa !== null
         ? `Mídia por venda de entrada: ${formatCurrency(totals.cpa)} · inclui orgânicas`
-        : complete && totals.investment === 0 ? "Sem investimento no período: não há divisor para o ROAS" : "Depende de líquido e investimento disponíveis",
+        : "Depende de líquido e investimento disponíveis",
       view: "financial",
-      available: complete && totals.investment > 0 && totals.roas !== null,
+      available: complete && comparison.roas !== null,
       color: "var(--violet)",
     },
   ];
@@ -167,7 +171,7 @@ export function OverviewDashboard({
         </div>
       )}
       {visibleProjects.flatMap(project => (project.qualityWarnings ?? []).map(message => (
-        <p key={`${project.id}:${message}`} className="rounded-xl bg-amber-50 p-4 text-xs leading-5"><strong>{project.name} — base parcial.</strong> {message} Saldo e ROAS dependem dessa conciliação.</p>
+        <p key={`${project.id}:${message}`} className="rounded-xl bg-amber-50 p-4 text-xs leading-5"><strong>{project.name} — base parcial.</strong> {message} Quando calculáveis, saldo e ROAS usam somente os valores registrados e podem mudar após a conciliação.</p>
       )))}
 
       <section aria-label="Indicadores principais" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -330,6 +334,7 @@ export function OverviewDashboard({
             {visibleProjects.map((project) => {
               const projectRows = project.dailyMetrics.filter((row) => row.date >= period.start && row.date <= period.end);
               const performance = calculatePerformance(projectRows);
+              const projectComparison = calculateRecordedComparison(projectRows);
               const available = overviewDataAvailability(projectRows);
               return (
                 <Link
@@ -353,7 +358,7 @@ export function OverviewDashboard({
                   <div className="hidden text-right sm:block">
                     <p className="text-sm font-black">{available.revenue ? formatCurrency(performance.revenue) : "Líquido indisponível"}</p>
                     <p className="text-[10px] text-[var(--muted)]">
-                      {available.revenue && available.traffic && performance.investment > 0 && performance.roas !== null ? `${performance.roas.toFixed(2)}x ROAS líquido` : "Confira as fontes"}
+                      {projectComparison.roas !== null ? `${projectComparison.roas.toFixed(2)}x ROAS líquido${projectComparison.partial ? " parcial" : ""}` : "Confira as fontes"}
                     </p>
                   </div>
                   <ArrowUpRight
