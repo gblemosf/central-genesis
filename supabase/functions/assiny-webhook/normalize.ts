@@ -4,6 +4,33 @@ const text = (value: unknown, max = 500) => typeof value === "string" ? value.tr
 const cents = (value: unknown): number | null => Number.isSafeInteger(value) && Number(value) >= 0 && Number(value) < 100_000_000_000_000 ? Number(value) : null;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+// All configured owners must be present. Missing amounts/owners are unknown,
+// never zero; an affiliate's commission cannot become an owner's payout.
+export function assinyCommissionPayout(raw: unknown, input: unknown, netCents: number | null) {
+  const contract = object(input);
+  const commissions = Array.isArray(raw) ? raw.map(value => {
+    const c = object(value);
+    return { recipient: text(c.user), type: text(c.type), amount: cents(c.amount) };
+  }) : [];
+  const grouped = Object.hasOwn(contract, "payoutRecipients");
+  const names = grouped && Array.isArray(contract.payoutRecipients)
+    ? contract.payoutRecipients.map(value => text(value))
+    : grouped ? [] : [text(contract.payoutRecipient)];
+  const recipients = [...new Set(names)];
+  const valid = recipients.length > 0 && recipients.every(Boolean);
+  const selected = commissions.filter(c => recipients.includes(c.recipient));
+  const ownerType = (type: string) => ["producer", "co producer"].includes(type.toLowerCase());
+  const complete = valid && recipients.every(name => selected.some(c => c.recipient === name)) &&
+    selected.every(c => c.amount !== null && (grouped ? ownerType(c.type) : c.type.toLowerCase() !== "affiliate"));
+  const total = complete ? selected.reduce((sum, c) => sum + c.amount!, 0) : null;
+  const payout = total !== null && Number.isSafeInteger(total) && netCents !== null && total <= netCents ? total / 100 : null;
+  return {
+    payout, payout_source: payout === null ? "unknown" : grouped ? "producer_group_commission" : "seller_receiver",
+    ...(grouped ? { payout_recipients: recipients, payout_scope: "producer_group" } : {}),
+    commissions: commissions.map(c => ({ ...c, amount: c.amount === null ? null : c.amount / 100 })),
+  };
+}
+
 // Assiny's documented envelope and item amounts. This is independent of other gateways.
 // Units must be confirmed on the connection; never guess them from magnitude.
 export function normalizeAssinyPayload(payload: ObjectValue, input: unknown) {
@@ -64,16 +91,12 @@ export function normalizeAssinyPayload(payload: ObjectValue, input: unknown) {
     [key, text(metadata[key], 2000) || text(params[key], 2000)]).filter(([, value]) => value));
   const cleanUrl = (value: unknown) => { try { const url = new URL(text(value, 8192)); if (!/^https?:$/.test(url.protocol)) return undefined;
     url.username = ""; url.password = ""; url.hash = ""; return url.toString(); } catch { return undefined; } };
-  const commissions = Array.isArray(transaction.commissions) ? transaction.commissions.map(value => {
-    const commission = object(value); return { recipient: text(commission.user), type: text(commission.type), amount: cents(commission.amount) }; }) : [];
-  const payout = text(contract.payoutRecipient) ? commissions.filter(c=>c.recipient===contract.payoutRecipient).reduce((sum,c)=>sum+(c.amount ?? 0),0) : null;
-  const reportedPayout = payout !== null && commissions.some(c=>c.recipient===contract.payoutRecipient) ? payout : null;
+  const commissionFacts = assinyCommissionPayout(transaction.commissions, contract, financialEvent ? net : null);
   return { value: { provider: "assiny", contract_version: 1, sandbox: payload.test === true, source_event: eventName, status,
     transaction_id: transactionId, external_kind: externalKind, occurred_at: new Date(time).toISOString(), currency,
     product_external_id: items[0].product_external_id, product_name: items[0].product_name,
     financial: { gross: gross / 100, platform_fee: financialEvent ? fee! / 100 : null, net_after_fees: financialEvent ? net! / 100 : null,
-      payout: reportedPayout === null ? null : reportedPayout / 100, payout_source: reportedPayout === null ? "unknown" : "seller_receiver",
-      commissions: commissions.map(c=>({...c, amount:c.amount===null?null:c.amount/100})) },
+      ...commissionFacts },
     items: items.map(item => ({ product_external_id: item.product_external_id, product_name: item.product_name, quantity: 1,
       is_order_bump: item.is_order_bump, offer_id: item.offer_id, offer_name: item.offer_name,
       financial: { gross: item.gross! / 100, listed_price: item.base===null?null:item.base/100, platform_fee: financialEvent ? item.fee! / 100 : null, net_after_fees: financialEvent ? item.net! / 100 : null, payout: null, payout_source: "unknown" } })),

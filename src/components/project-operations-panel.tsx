@@ -333,6 +333,8 @@ export function ProjectOperationsPanel({
     };
   }, [data, query, status, selectedCurrency, filter.productIds, products, period]);
   const summary = summarizeSales(filtered.sales, selectedCurrency);
+  const payoutGaps = filtered.sales.filter(sale => sale.payout === null && ["paid", "refunded"].includes(sale.status));
+  const partialPayout = summary.payout === null && summary.payoutKnown !== null;
   const currencies = Array.from(
     new Set([
       data?.currency || "BRL",
@@ -592,8 +594,8 @@ export function ProjectOperationsPanel({
                   money(summary.afterFees, selectedCurrency),
                 ],
                 [
-                  "Recebido pelo produtor",
-                  money(summary.payout, selectedCurrency),
+                  partialPayout ? "Repasse informado — parcial" : "Recebido pelo produtor",
+                  money(summary.payout ?? summary.payoutKnown, selectedCurrency),
                 ],
               ].map(([label, value]) => (
                 <div className="rounded-2xl bg-black/[0.035] p-4" key={label}>
@@ -625,6 +627,15 @@ export function ProjectOperationsPanel({
               ))}
             </div>
           )}
+          {view !== "recovery" && payoutGaps.length > 0 && <details className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+            <summary className="cursor-pointer text-sm font-semibold">{payoutGaps.length} registro(s) com repasse pendente — ver detalhes</summary>
+            <p className="mt-3 text-xs leading-5">{partialPayout ? "O cartão soma somente os repasses conhecidos, descontando os reembolsos com valor informado. Não é o total definitivo." : "Ainda não há um total de repasse validado para esta seleção."} Líquido após taxas e repasse ao produtor são valores diferentes.</p>
+            <ul className="mt-3 space-y-3">{payoutGaps.map(sale => <li key={sale.id} className="rounded-lg bg-white/70 p-3 text-xs leading-5">
+              <strong>{sale.provider} · {sale.product}</strong><p>{timestamp(sale.occurredAt)} · {sale.transaction}</p>
+              <p>{sale.payoutIssue ?? "O repasse deste registro não foi informado ou validado."}</p>
+              <button type="button" onClick={() => setInspectedId(sale.id)} className="mt-1 font-semibold underline">Conferir esta venda</button>
+            </li>)}</ul>
+          </details>}
           {view === "results" && (
             <p className="text-xs leading-5 text-[var(--muted)]">
               Proporção dos contatos com primeiro registro no período que também
@@ -649,10 +660,10 @@ export function ProjectOperationsPanel({
           {view !== "recovery" && (
             <p className="text-xs leading-5 text-[var(--muted)]">
               Líquido após taxa = bruto menos a taxa informada pela plataforma.
-              Recebido pelo produtor considera a comissão ou repasse informado.
+              Recebido pelo produtor considera o repasse informado. Na Assiny, soma os sócios configurados, sem incluir afiliados.
               Reembolsos são descontados desses totais.{" "}
               {summary.unknownFinancial > 0 &&
-                `${summary.unknownFinancial} registro(s) sem detalhamento suficiente: o valor ausente aparece como “Não informado”.`}
+                `${summary.unknownFinancial} registro(s) sem detalhamento suficiente. Valores individuais ausentes aparecem como “Não informado”; uma soma de repasses conhecidos é identificada como parcial.`}
             </p>
           )}
           {view === "sales" && <details className="rounded-xl border border-[var(--line)] p-4">

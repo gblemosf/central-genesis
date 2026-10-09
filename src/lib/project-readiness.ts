@@ -35,6 +35,9 @@ export function getProjectReadiness(
       metric.checkouts !== 0,
   );
   const unmapped = analytics.dataSources.unmappedSalesEvents;
+  const unmappedProducts = analytics.dataSources.unmappedSalesProducts ?? [];
+  const unmappedNames = unmappedProducts.slice(0, 3).join(", ") +
+    (unmappedProducts.length > 3 ? ` e mais ${unmappedProducts.length - 3} produto(s)` : "");
 
   const items: ProjectReadinessItem[] = [
     {
@@ -67,9 +70,9 @@ export function getProjectReadiness(
     },
     {
       key: "sales",
-      label: "Vendas no período",
+      label: hasSales && unmapped > 0 ? "Vendas recebidas · vínculo pendente" : "Vendas no período",
       description: unmapped > 0
-        ? `${unmapped} evento(s) da conexao ainda sem produto mapeado.`
+        ? `${hasSales ? "As vendas já estão chegando. " : ""}${unmapped} evento(s) da conexão aguardam vínculo de produto${unmappedNames ? `: ${unmappedNames}` : ""}. Revise em Produtos e funil; não é uma configuração de formulário.`
         : hasSales
           ? "A fonte de vendas possui eventos ou linhas importadas."
           : hasHotmartProduct

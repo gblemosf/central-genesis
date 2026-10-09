@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeAssinyPayload } from "./normalize";
+import { assinyCommissionPayout, normalizeAssinyPayload } from "./normalize";
 import { prepareAssinyPayload } from "./payload";
 const contract = { version: 1, amountUnit: "cents", sourceProjectId: "source-project" };
 const product = (id: string, name: string) => ({ id, name });
@@ -15,6 +15,30 @@ function purchase() { return { event: "approved_purchase", data: {
     commissions: [{ amount: 16164, user: "Produtor A" }, { amount: 16164, user: "Produtor B" }] } } }; }
 
 describe("Assiny documented normalization", () => {
+  it("sums configured co-producers without allocating 50/50 or including affiliates", () => {
+    const owners = { ...contract, payoutRecipients: ["Produtor A", "Produtor B", "Produtor A"] };
+    const split = [
+      { user: "Produtor A", type: "co producer", amount: 10000 },
+      { user: "Produtor B", type: "co producer", amount: 15000 },
+      { user: "Afiliado", type: "affiliate", amount: 7328 },
+    ];
+    const p = purchase();
+    p.data.transaction.commissions = split;
+    expect(normalizeAssinyPayload(p, owners).value?.financial).toMatchObject({
+      payout: 250, payout_source: "producer_group_commission", payout_scope: "producer_group",
+      payout_recipients: ["Produtor A", "Produtor B"],
+      commissions: [{ amount: 100 }, { amount: 150 }, { amount: 73.28, type: "affiliate" }],
+    });
+    // The invoice split does not establish the split of each individual product.
+    expect(normalizeAssinyPayload(p, owners).value?.items.every(item => item.financial.payout === null)).toBe(true);
+    expect(assinyCommissionPayout(split.slice(0, 1), owners, 32328).payout).toBeNull();
+    expect(assinyCommissionPayout([split[0], { ...split[1], amount: null }], owners, 32328).payout).toBeNull();
+    expect(assinyCommissionPayout([split[0], { ...split[1], type: "affiliate" }], owners, 32328).payout).toBeNull();
+    expect(assinyCommissionPayout(split, owners, 20000).payout).toBeNull();
+    expect(assinyCommissionPayout(split, { payoutRecipients: [] }, 32328).payout).toBeNull();
+    expect(assinyCommissionPayout(split.map(c => ({ ...c, amount: 0 })), owners, 32328).payout).toBe(0);
+    expect(assinyCommissionPayout([{ user: "Produtor A", amount: null }], { payoutRecipient: "Produtor A" }, 32328).payout).toBeNull();
+  });
   it("keeps exact item fees and net, shared tracking and unknown recipient payout", () => {
     const result = normalizeAssinyPayload(purchase(), contract).value!;
     expect(result).toMatchObject({ provider: "assiny", status: "paid", financial: { gross: 344, platform_fee: 20.72, net_after_fees: 323.28, payout: null },

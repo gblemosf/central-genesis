@@ -124,10 +124,16 @@ export function itemFinancialFacts(
     !allItems.some(value => text(value.product_id) === text(item.product_id) && externalId(value) === id)) return unknown;
 
   const match = normalized.find(value => text(value.product_external_id) === id)!;
-  return financialFacts({
+  const itemFacts = financialFacts({
     event_type: event.event_type,
     gross_amount: item.gross_amount,
     net_amount: item.net_amount,
     payload: { financial: match.financial },
   });
+  const invoiceFacts = financialFacts(event);
+  if (allItems.length === 1 && itemFacts.payout === null && itemFacts.gross !== null && itemFacts.afterFees !== null &&
+    itemFacts.gross === invoiceFacts.gross && itemFacts.afterFees === invoiceFacts.afterFees) {
+    return { ...itemFacts, payout: invoiceFacts.payout, payoutSource: invoiceFacts.payoutSource };
+  }
+  return itemFacts;
 }

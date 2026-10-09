@@ -82,6 +82,15 @@ describe("financial facts", () => {
 });
 
 describe("item financial facts", () => {
+  it("inherits an owner-group payout only when the single item is the entire reconciled invoice", () => {
+    const row = { gross_amount: 297, payload: { provider: "assiny", contract_version: 1,
+      financial: { gross: 297, net_after_fees: 279.28, payout: 250, payout_source: "producer_group_commission" },
+      items: [{ product_external_id: "main", financial: { gross: 297, net_after_fees: 279.28, payout: null } }] } };
+    expect(itemFinancialFacts(row, storedItems[0], [storedItems[0]]).payout).toBe(250);
+    expect(itemFinancialFacts({ ...row, event_type: "PURCHASE_REFUNDED" }, storedItems[0], [storedItems[0]]).payout).toBe(-250);
+    const conflict = { ...row, payload: { ...row.payload, financial: { ...row.payload.financial, net_after_fees: 280 } } };
+    expect(itemFinancialFacts(conflict, storedItems[0], [storedItems[0]]).payout).toBeNull();
+  });
   it("does not assign an entire multi-product contract to its only persisted item", () => {
     expect(itemFinancialFacts(multiItem, storedItems[0], [storedItems[0]]).afterFees).toBeNull();
   });

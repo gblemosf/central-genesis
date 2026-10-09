@@ -42,6 +42,28 @@ const purchase = (currency = "BRL") =>
   )!;
 
 describe("project sales presentation", () => {
+  it("presents known payouts as a partial signed sum without hiding gaps or mixing currencies", () => {
+    const paid = saleFromRecord({ event_type: 'PURCHASE_APPROVED', currency: 'BRL', gross_amount: 100, payload: {financial:{payout:40}} });
+    const missing = { ...paid, payout: null };
+    const refund = { ...paid, status: 'refunded' as const, payout: -10 };
+    expect(summarizeSales([paid,missing,refund,{...paid,currency:'USD',payout:500}], 'BRL'))
+      .toMatchObject({ payout: null, payoutKnown: 30, payoutMissing: 1 });
+    expect(summarizeSales([missing], 'BRL')).toMatchObject({ payout: null, payoutKnown: null });
+    expect(summarizeSales([{...paid,payout:0},missing], 'BRL')).toMatchObject({ payout: null, payoutKnown: 0 });
+    expect(summarizeSales([paid,{...missing,status:'partial_refund'}], 'BRL')).toMatchObject({ payout: null, payoutKnown: null });
+  });
+
+  it("uses a validated invoice payout for its sole item without guessing a beneficiary", () => {
+    const financial={gross:100,platform_fee:10,net_after_fees:90,payout:45,payout_source:'seller_receiver'};
+    const row={id:'sale',gross_amount:100,event_type:'PURCHASE_APPROVED',currency:'BRL',
+      payload:{provider:'assiny',contract_version:1,financial,items:[{product_external_id:'core',financial:{...financial,payout:null,payout_source:'unknown'}}]},
+      sales_event_items:[{product_id:'p',gross_amount:100,products:{external_id:'core'}}]};
+    expect(saleRowsFromRecord(row)[0].payout).toBe(45);
+    expect(saleRowsFromRecord({...row,payload:{...row.payload,financial:{...financial,payout:null,payout_source:'unknown',commissions:[{recipient:'A',amount:45},{recipient:'B',amount:45}]}}})[0])
+      .toMatchObject({payout:null,payoutIssue:'Há comissões informadas; confira os beneficiários e os valores do repasse.'});
+    expect(saleRowsFromRecord({...row,gross_amount:200})[0].payout).toBeNull();
+  });
+
   it("shows validated invoice items with their own values and inherited tracking without duplicating transaction counts", () => {
     const item = (external: string, gross: number, fee: number) => ({ product_external_id: external, product_name: external,
       financial: { gross, platform_fee: fee, net_after_fees: gross-fee, payout: null, payout_source: 'unknown' } });

@@ -28,6 +28,7 @@ export interface SaleRow {
   afterFees: number | null;
   payout: number | null;
   payoutSource: string;
+  payoutIssue?: string;
   orderBump: boolean;
   paymentMethod: string;
   installments: string;
@@ -118,6 +119,10 @@ export function saleFromRecord(row: Record<string, unknown>): SaleRow {
     afterFees: facts.afterFees,
     payout: facts.payout,
     payoutSource: facts.payoutSource,
+    payoutIssue: facts.payout === null && Array.isArray(record(payload.financial).commissions) &&
+      (record(payload.financial).commissions as unknown[]).length > 0
+      ? "Há comissões informadas; confira os beneficiários e os valores do repasse."
+      : facts.payout === null ? "O repasse deste registro não foi informado ou validado." : undefined,
     orderBump:
       payload.is_order_bump === true ||
       item.stage_type_snapshot === "order_bump",
@@ -149,7 +154,13 @@ export function saleRowsFromRecord(row: Record<string, unknown>): SaleRow[] {
   if (matches.some(item => !item) || new Set(matches.map(item => item?.product_id)).size !== items.length) return [saleFromRecord(row)];
   return items.map((item, index) => {
     const stored = matches[index]!;
-    const financial = record(item.financial);
+    // A single validated item is the whole invoice, so its payout needs no allocation.
+    const invoiceFacts = financialFacts(row);
+    const itemFacts = financialFacts({ ...row, gross_amount: stored.gross_amount, payload: { financial: item.financial } });
+    const canUseInvoice = items.length === 1 && itemFacts.gross !== null && itemFacts.afterFees !== null &&
+      itemFacts.payout === null && itemFacts.gross === invoiceFacts.gross && itemFacts.afterFees === invoiceFacts.afterFees;
+    const financial = canUseInvoice ? { ...record(item.financial), payout: invoiceFacts.payout,
+      payout_source: invoiceFacts.payoutSource, commissions: record(payload.financial).commissions } : record(item.financial);
     const sale = saleFromRecord({ ...row, gross_amount: stored.gross_amount, net_amount: stored.net_amount, sales_event_items: stored,
       payload: { ...payload, product_external_id: item.product_external_id, product_name: item.product_name,
         is_order_bump: item.is_order_bump, financial, offer: { id: item.offer_id, name: item.offer_name } } });
@@ -226,6 +237,9 @@ export function summarizeSales(sales: SaleRow[], currency: string) {
     fee: knownTotal("fee"),
     afterFees: knownTotal("afterFees"),
     payout: knownTotal("payout"),
+    payoutKnown: !partialUnknown && rows.some(sale => sale.payout !== null)
+      ? Math.round(rows.reduce((sum, sale) => sum + (sale.payout ?? 0), 0) * 100) / 100 : null,
+    payoutMissing: rows.filter(sale => sale.payout === null).length,
     buyers: buyers.size,
     unknownFinancial: rows.filter(
       (sale) => sale.afterFees === null || sale.payout === null,

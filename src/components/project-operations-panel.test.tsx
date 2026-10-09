@@ -42,3 +42,16 @@ it("keeps full details available while switching column presets", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Ver detalhes" }));
   expect(within(screen.getByRole("dialog")).getByText(/19,66/)).toBeTruthy();
 });
+
+it("shows a partial payout and identifies the exact records that need attention", async () => {
+  const gap={...sale,id:'gap',transaction:'invoice-gap',provider:'assiny',payout:null,
+    payoutIssue:'Há comissões informadas; falta identificar o beneficiário do repasse.'};
+  vi.mocked(fetch).mockResolvedValue({ok:true,json:async()=>({data:{sales:[sale,gap],contacts:[],recovery:[],currency:'BRL'}})} as Response);
+  render(<ProjectOperationsPanel {...props} view="results" />);
+  const label=await screen.findByText('Repasse informado — parcial');
+  expect(within(label.parentElement!).getByText(/19,66/)).toBeTruthy();
+  fireEvent.click(screen.getByText(/1 registro\(s\) com repasse pendente/));
+  expect(screen.getByText(/falta identificar o beneficiário/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button',{name:'Conferir esta venda'}));
+  expect(within(screen.getByRole('dialog')).getByText('invoice-gap')).toBeTruthy();
+});

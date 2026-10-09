@@ -681,6 +681,9 @@ export async function getProjectAnalytics(
     typeof settings.sales_connection_id === "string" && settings.sales_connection_id
       ? settings.sales_connection_id
       : null;
+  const salesConnectionIds = [...new Set([salesConnectionId, ...catalog.products
+    .filter(product => product.mappedProjectId === projectId)
+    .map(product => product.connectionId)].filter((id): id is string => Boolean(id)))];
   const startBuffer = new Date(`${config.periodStart}T00:00:00Z`);
   startBuffer.setUTCDate(startBuffer.getUTCDate() - 1);
   const endBuffer = new Date(`${config.periodEnd}T00:00:00Z`);
@@ -812,12 +815,12 @@ export async function getProjectAnalytics(
       .from("mapeamento_produtos")
       .select("product_id,projeto,campo,nome_produto")
       .eq("projeto", project.slug),
-    salesConnectionId
-      ? supabase
+    salesConnectionIds.length
+      ? readQueryPages((from, to) => supabase
           .from("sales_events")
-          .select("id", { count: "exact", head: true })
+          .select("id,event_at,product_name:payload->>product_name,product_external_id:payload->>product_external_id")
           .eq("organization_id", project.organization_id)
-          .eq("connection_id", salesConnectionId)
+          .in("connection_id", salesConnectionIds)
           .is("project_id", null)
           .in("event_type", [
             "PURCHASE_APPROVED",
@@ -825,11 +828,15 @@ export async function getProjectAnalytics(
             "PURCHASE_REFUNDED",
           ])
           .gte("event_at", startBuffer.toISOString())
-          .lt("event_at", endBuffer.toISOString())
-      : Promise.resolve({ count: 0, error: null }),
+          .lt("event_at", endBuffer.toISOString()).order("id").range(from, to))
+      : Promise.resolve({ data: [], error: null }),
   ]);
 
   const products = new Map(catalog.products.map((product) => [product.id, product]));
+  const unmappedInPeriod = (unmappedSalesCount.data ?? []).filter(event => {
+    const day = dateInTimezone(new Date(event.event_at), project.reporting_timezone);
+    return day >= config.periodStart && day <= config.periodEnd;
+  });
   const historicalProductIds = Array.from(
     new Set(
       sales.data.flatMap((event) =>
@@ -1153,7 +1160,8 @@ export async function getProjectAnalytics(
         normalizedCsvDateSet.size + legacyCsvDateSet.size,
       metaTrafficRows: metaTrafficCount.count ?? 0,
       webhookSalesEvents: webhookSalesCount.count ?? 0,
-      unmappedSalesEvents: unmappedSalesCount.count ?? 0,
+      unmappedSalesEvents: unmappedInPeriod.length,
+      unmappedSalesProducts: [...new Set(unmappedInPeriod.map(event => String(event.product_name || event.product_external_id || "Produto não identificado")))],
     },
     dailyMetrics: (audited.data.get(projectId) ?? Array.from(rows.values()).map(row => ({ ...row, revenueAvailable: false, trafficAvailable: false, salesAvailable: false })))
       .map(row => ({ ...row, comparisonAvailable: !qualityWarnings.get(projectId)?.length })),

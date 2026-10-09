@@ -45,6 +45,15 @@ const analytics: ProjectAnalytics = {
 };
 
 describe("getProjectReadiness", () => {
+  it("identifies the product awaiting linkage without calling existing sales unconfigured", () => {
+    const result=getProjectReadiness(project,catalog,{...analytics,
+      dataSources:{...analytics.dataSources,unmappedSalesEvents:1,unmappedSalesProducts:['[SCD] Comunidade Hustle Club']},
+      dailyMetrics:[{date:'2026-10-03',investment:100,revenue:200,coreSales:1,impressions:0,clicks:0,pageViews:0,checkouts:0,productMetrics:[]}]});
+    const item=result.items.find(item=>item.key==='sales')!;
+    expect(item).toMatchObject({ready:false,target:'products',label:'Vendas recebidas · vínculo pendente'});
+    expect(item.description).toContain('[SCD] Comunidade Hustle Club');
+    expect(item.description).toContain('As vendas já estão chegando.');
+  });
   it("direciona histórico somente para produtos Hotmart e evita CSV como primeira opção", () => {
     const product = { id: "p", connectionId: "c", externalId: "e", name: "Produto", price: 47, currency: "BRL", source: "provider" as const, archivedAt: null, stageId: "s", mappedProjectId: project.id };
     const empty = { ...analytics, dataSources: { ...analytics.dataSources, unmappedSalesEvents: 0 } };
