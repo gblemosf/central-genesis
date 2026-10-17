@@ -9,6 +9,9 @@
 !/supabase/functions/payt-webhook
 /supabase/functions/payt-webhook/*
 !/supabase/functions/payt-webhook/normalize.ts
+!/supabase/functions/payt-webhook/v1.ts
+!/supabase/functions/payt-webhook/v1-data.ts
 !/supabase/functions/assiny-webhook
 /supabase/functions/assiny-webhook/*
 !/supabase/functions/assiny-webhook/normalize.ts
+!/supabase/functions/assiny-webhook/reconcile.ts
