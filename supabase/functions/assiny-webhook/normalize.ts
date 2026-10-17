@@ -1,3 +1,5 @@
+import { assinyReconciliation } from "./reconcile.ts";
+
 type ObjectValue = Record<string, unknown>;
 const object = (value: unknown): ObjectValue => value && typeof value === "object" && !Array.isArray(value) ? value as ObjectValue : {};
 const text = (value: unknown, max = 500) => typeof value === "string" ? value.trim().slice(0, max) : "";
@@ -38,13 +40,16 @@ export function normalizeAssinyPayload(payload: ObjectValue, input: unknown) {
   if (contract.version !== 1 || contract.amountUnit !== "cents") return { reason: "awaiting_contract" };
   const data = object(payload.data), transaction = object(data.transaction), offer = object(data.offer);
   const eventName = text(payload.event, 120);
-  const statuses: Record<string, string> = { approved_purchase: "paid", refunded_purchase: "refunded", chargeback_purchase: "chargeback",
-    abandoned_checkout: "abandoned", abandoned_purchase: "abandoned", pending_purchase: "pending", denied_purchase: "failed", expired_purchase: "expired" };
+  const statuses: Record<string, string> = { approved_purchase: "paid", completed_purchase: "paid", refunded_purchase: "refunded", chargeback_purchase: "chargeback",
+    abandoned_checkout: "abandoned", abandoned_purchase: "abandoned", pending_purchase: "pending", pix_generated: "pending", pix_expired: "expired", denied_purchase: "failed", expired_purchase: "expired" };
+  if (["request_refund", "resolved_refund"].includes(eventName)) return { reason: "non_financial_event" };
   const status = statuses[eventName];
   if (!status) return { reason: "unsupported_event" };
-  if ((status === "paid" && transaction.status !== "paid") || (status === "refunded" && transaction.status !== "refunded")) return { reason: "status_mismatch" };
+  if ((status === "paid" && !(transaction.status === "paid" || (eventName === "completed_purchase" && transaction.status === "completed_purchase"))) ||
+    (status === "refunded" && !["refunded", "refunded_purchase"].includes(text(transaction.status))) ||
+    (status === "chargeback" && !["chargeback", "chargeback_purchase"].includes(text(transaction.status)))) return { reason: "status_mismatch" };
   const sourceProject = text(object(transaction.project).id || offer.project_id);
-  if (contract.sourceProjectId && sourceProject && sourceProject !== contract.sourceProjectId) return { reason: "source_project_mismatch" };
+  if (contract.sourceProjectId && sourceProject !== contract.sourceProjectId) return { reason: "source_project_mismatch" };
   const currency = text(transaction.currency || (status === "abandoned" ? "BRL" : ""));
   if (!/^[A-Z]{3}$/.test(currency)) return { reason: "invalid_currency" };
   const financialEvent = ["paid", "refunded", "chargeback"].includes(status);
@@ -72,10 +77,8 @@ export function normalizeAssinyPayload(payload: ObjectValue, input: unknown) {
   const gross = financialEvent ? cents(transaction.amount) : items.reduce((sum, item) => sum + item.gross!, 0);
   const fee = cents(transaction.fee_amount), net = cents(transaction.net_amount);
   if (gross === null || gross !== items.reduce((sum, item) => sum + item.gross!, 0)) return { reason: "item_total_mismatch" };
-  // No proportional allocation of invoice fees or payouts to items.
-  if (financialEvent && (fee === null || net === null || fee + net !== gross || items.some(item =>
-    item.fee === null || item.net === null || item.fee + item.net !== item.gross) ||
-    items.reduce((sum, item) => sum + item.fee!, 0) !== fee || items.reduce((sum, item) => sum + item.net!, 0) !== net)) return { reason: "financial_reconciliation_failed" };
+  const reconciliation = financialEvent ? assinyReconciliation(items, gross, fee, net) : null;
+  if (financialEvent && !reconciliation) return { reason: "financial_reconciliation_failed" };
   const client = object(data.client), metadata = object(data.metadata), params = object(metadata.url_parameters);
   let transactionId = text(transaction.id, 300), externalKind = "invoice";
   if (!transactionId && status === "abandoned") {
@@ -94,9 +97,10 @@ export function normalizeAssinyPayload(payload: ObjectValue, input: unknown) {
   const commissionFacts = assinyCommissionPayout(transaction.commissions, contract, financialEvent ? net : null);
   return { value: { provider: "assiny", contract_version: 1, sandbox: payload.test === true, source_event: eventName, status,
     transaction_id: transactionId, external_kind: externalKind, occurred_at: new Date(time).toISOString(), currency,
+    financial_scope: reconciliation?.scope ?? "items",
     product_external_id: items[0].product_external_id, product_name: items[0].product_name,
     financial: { gross: gross / 100, platform_fee: financialEvent ? fee! / 100 : null, net_after_fees: financialEvent ? net! / 100 : null,
-      ...commissionFacts },
+      ...commissionFacts, ...(reconciliation?.adjustment ? { reconciliation: reconciliation.adjustment } : {}) },
     items: items.map(item => ({ product_external_id: item.product_external_id, product_name: item.product_name, quantity: 1,
       is_order_bump: item.is_order_bump, offer_id: item.offer_id, offer_name: item.offer_name,
       financial: { gross: item.gross! / 100, listed_price: item.base===null?null:item.base/100, platform_fee: financialEvent ? item.fee! / 100 : null, net_after_fees: financialEvent ? item.net! / 100 : null, payout: null, payout_source: "unknown" } })),

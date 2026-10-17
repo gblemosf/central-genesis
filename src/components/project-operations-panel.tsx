@@ -1,5 +1,7 @@
 "use client";
 
+import { invoiceSummaryRows } from "@/lib/invoice-summary";
+
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Download, LoaderCircle, RefreshCw, Search, X } from "lucide-react";
 import {
@@ -159,6 +161,10 @@ const salesHeaders = [
   "Parcelas",
   "Oferta",
   "Plataforma",
+  "Bruto da fatura",
+  "Líquido da fatura",
+  "Repasse da fatura",
+  "Composição da fatura",
 ];
 function saleCells(sale: SaleRow, exporting = false): ReactNode[] {
   const values = [sale.gross, sale.fee, sale.afterFees, sale.payout].map(
@@ -186,6 +192,9 @@ function saleCells(sale: SaleRow, exporting = false): ReactNode[] {
     sale.installments,
     sale.offer,
     sale.provider,
+    ...[sale.invoice?.financial.gross, sale.invoice?.financial.afterFees, sale.invoice?.financial.payout].map(value =>
+      sale.invoice && sale.catalogProductId === sale.invoice.itemIds[0] ? exporting ? value : money(value ?? null, sale.currency) : ""),
+    sale.invoice?.note ?? "",
   ];
 }
 
@@ -333,7 +342,7 @@ export function ProjectOperationsPanel({
     };
   }, [data, query, status, selectedCurrency, filter.productIds, products, period]);
   const summary = summarizeSales(filtered.sales, selectedCurrency);
-  const payoutGaps = filtered.sales.filter(sale => sale.payout === null && ["paid", "refunded"].includes(sale.status));
+  const payoutGaps = invoiceSummaryRows(filtered.sales).filter(sale => sale.payout === null && ["paid", "refunded"].includes(sale.status));
   const partialPayout = summary.payout === null && summary.payoutKnown !== null;
   const currencies = Array.from(
     new Set([

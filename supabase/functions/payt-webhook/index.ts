@@ -40,7 +40,7 @@ Deno.serve(async (request: Request) => {
       const bytes = new Uint8Array(size);
       let offset = 0;
       for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
-      const body = JSON.parse(new TextDecoder().decode(bytes));
+      const body = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
       if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length === 0) return new Response("JSON object required", { status: 400 });
       payload = objectValue(sanitizePaytPayload(body));
       if (Object.keys(payload).length === 0) return new Response("Event data required", { status: 400 });
@@ -53,8 +53,8 @@ Deno.serve(async (request: Request) => {
       p_payload: payload, p_normalized: normalized.value ?? null,
       p_review_reason: normalized.reason ?? null,
     });
-    if (received.error) return new Response("Persistence failed", { status: 500 });
     const result = objectValue(Array.isArray(received.data) ? received.data[0] : received.data);
+    if (received.error || !result.receipt_id) return new Response("Persistence failed", { status: 500 });
     return Response.json({ accepted: true, duplicate: Boolean(result.duplicate), state: result.state, mapped: Boolean(result.mapped) }, { status: 202 });
   } catch { return new Response("Service unavailable", { status: 503 }); }
 });

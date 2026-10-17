@@ -91,3 +91,11 @@ O Financeiro permite consultar os dados recebidos sem confirmar premissas. O res
 A migration `20260913133708_meta_automatic_sync.sql` cria funções restritas ao servidor, seleção de projeto e trava de execução. Depois do deploy, `scripts/activate-meta-sync.sql` configura um token próprio no Vault e uma chamada a cada cinco minutos. Cada chamada processa um projeto ativo com conta Meta válida, no máximo uma vez por hora por projeto, sem depender de navegador aberto. Primeira execução: últimos seis meses; seguintes: últimos dez dias para incorporar ajustes recentes. A fila distribui a atualização pelos projetos. Falhas ficam em `sync_runs` com `job_type=meta_auto`; execuções interrompidas expiram em dez minutos e podem ser retomadas na próxima janela horária.
 
 Nenhum vínculo de conta, credencial existente ou permissão de fornecedor é alterado. Projetos sem a conta correta ficam pendentes. A gravação do tráfego e a conclusão do trabalho ocorrem na mesma transação e só aceitam uma execução válida.
+
+## Validação e publicação do Supabase
+
+O workflow **CI** valida aplicação, migrations e testes de banco antes de chamar a publicação do Supabase. O workflow **Deploy Supabase** é reutilizável e não tem disparo independente. A publicação só é chamada para `main`, após o job `validate` passar, e usa o mesmo SHA validado. Antes de acessar o projeto remoto, compara esse SHA com o checkout e a `main` atual; uma versão ultrapassada é recusada.
+
+Para republicar, execute **CI → Run workflow** na `main`. Isso repete a validação antes da publicação. Credenciais ausentes produzem falha explícita, sem registrar uma publicação ignorada como sucesso. Pull requests validam o banco isolado e não chamam o deploy de produção. A publicação do front-end na Vercel tem configuração própria e não é controlada por esse workflow do Supabase.
+
+Os testes em `supabase/tests` devem criar seus dados sintéticos, emitir TAP e terminar com rollback. Não devem depender de IDs, produtos ou conexões existentes no banco de produção. O teste de itens preserva os casos de compra, bump, pagamento pendente, recuperação, repetição, ordem de entrega, estorno e isolamento de plataforma.

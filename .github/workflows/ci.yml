@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   validate:
@@ -25,3 +29,9 @@ jobs:
       - run: supabase db lint --local --level warning
       - run: supabase test db
       - run: npm run build
+
+  deploy-supabase:
+    needs: validate
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    uses: ./.github/workflows/deploy-supabase.yml
+    secrets: inherit

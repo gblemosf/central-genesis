@@ -5,9 +5,11 @@ import {
   text,
   type SaleAttribution,
 } from "@/lib/sales-attribution";
-import { financialFacts } from "@/lib/financial-facts";
+import { financialFacts, type FinancialFacts } from "@/lib/financial-facts";
+import { invoiceSummaryRows } from "@/lib/invoice-summary";
 
 export interface SaleRow {
+  invoice?: { recordId: string; itemIds: string[]; financial: FinancialFacts; note: string };
   catalogProductId?: string;
   id: string;
   transaction: string;
@@ -152,6 +154,16 @@ export function saleRowsFromRecord(row: Record<string, unknown>): SaleRow[] {
   const items = payload.items.map(record);
   const matches = items.map(item => storedItems.find(stored => text(relation(stored.products).external_id) === text(item.product_external_id)));
   if (matches.some(item => !item) || new Set(matches.map(item => item?.product_id)).size !== items.length) return [saleFromRecord(row)];
+  const invoiceFacts = financialFacts(row);
+  const adjustment = record(record(payload.financial).reconciliation);
+  const invoice = items.length > 1 && text(row.id) && invoiceFacts.gross !== null && invoiceFacts.afterFees !== null ? {
+    recordId: text(row.id), itemIds: matches.map(item => text(item!.product_id)), financial: invoiceFacts,
+    note: adjustment.kind === 'invoice_only'
+      ? 'Taxas e líquido informados somente para a fatura. Os itens mantêm seus preços, sem rateio.'
+      : adjustment.kind === 'reported_item_rounding'
+        ? `Diferença declarada entre o líquido da fatura e a soma dos itens: ${Number(adjustment.net_after_fees_delta).toFixed(2)} ${text(row.currency)}. Valores originais preservados.`
+        : 'O total da fatura é computado uma única vez quando todos os seus itens estão na seleção.',
+  } : undefined;
   return items.map((item, index) => {
     const stored = matches[index]!;
     // A single validated item is the whole invoice, so its payout needs no allocation.
@@ -164,7 +176,7 @@ export function saleRowsFromRecord(row: Record<string, unknown>): SaleRow[] {
     const sale = saleFromRecord({ ...row, gross_amount: stored.gross_amount, net_amount: stored.net_amount, sales_event_items: stored,
       payload: { ...payload, product_external_id: item.product_external_id, product_name: item.product_name,
         is_order_bump: item.is_order_bump, financial, offer: { id: item.offer_id, name: item.offer_name } } });
-    return { ...sale, id: `${sale.id}:${text(stored.product_id)}` };
+    return { ...sale, id: `${sale.id}:${text(stored.product_id)}`, ...(invoice ? { invoice } : {}) };
   });
 }
 
@@ -205,6 +217,7 @@ export function summarizeSales(sales: SaleRow[], currency: string) {
       sale.currency === currency && ["paid", "refunded"].includes(sale.status),
   );
   const paid = rows.filter((sale) => sale.status === "paid");
+  const financialRows = invoiceSummaryRows(rows);
   const refundedTransactions = new Set(
     rows
       .filter((sale) => sale.status === "refunded")
@@ -220,9 +233,9 @@ export function summarizeSales(sales: SaleRow[], currency: string) {
       .filter(Boolean),
   );
   const knownTotal = (key: "fee" | "afterFees" | "payout") =>
-    !partialUnknown && rows.every((sale) => sale[key] !== null)
+    !partialUnknown && financialRows.every((sale) => sale[key] !== null)
       ? Math.round(
-          rows.reduce((sum, sale) => sum + (sale[key] ?? 0), 0) * 100,
+          financialRows.reduce((sum, sale) => sum + (sale[key] ?? 0), 0) * 100,
         ) / 100
       : null;
   return {
@@ -230,18 +243,18 @@ export function summarizeSales(sales: SaleRow[], currency: string) {
       paid.map((sale) => `${sale.connectionId}:${sale.transaction}`),
     ).size,
     refunds: refundedTransactions.size,
-    gross: paid.reduce((sum, sale) => sum + sale.gross, 0),
-    refunded: -rows
+    gross: financialRows.filter(sale => sale.status === "paid").reduce((sum, sale) => sum + sale.gross, 0),
+    refunded: -financialRows
       .filter((sale) => sale.status === "refunded")
       .reduce((sum, sale) => sum + sale.gross, 0),
     fee: knownTotal("fee"),
     afterFees: knownTotal("afterFees"),
     payout: knownTotal("payout"),
-    payoutKnown: !partialUnknown && rows.some(sale => sale.payout !== null)
-      ? Math.round(rows.reduce((sum, sale) => sum + (sale.payout ?? 0), 0) * 100) / 100 : null,
-    payoutMissing: rows.filter(sale => sale.payout === null).length,
+    payoutKnown: !partialUnknown && financialRows.some(sale => sale.payout !== null)
+      ? Math.round(financialRows.reduce((sum, sale) => sum + (sale.payout ?? 0), 0) * 100) / 100 : null,
+    payoutMissing: financialRows.filter(sale => sale.payout === null).length,
     buyers: buyers.size,
-    unknownFinancial: rows.filter(
+    unknownFinancial: financialRows.filter(
       (sale) => sale.afterFees === null || sale.payout === null,
     ).length,
   };

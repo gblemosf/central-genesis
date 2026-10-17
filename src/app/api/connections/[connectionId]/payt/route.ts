@@ -60,10 +60,10 @@ export async function POST(_request: Request, route: { params: Promise<{ connect
     if (!admin) throw new ApiError("Serviço de recebimento indisponível.", 503);
     const receipts = await context.supabase.from("payt_webhook_receipts").select("id,idempotency_key,payload")
       .eq("connection_id", connectionId).eq("organization_id", context.organizationId)
-      .in("state", ["awaiting_contract", "unmapped", "failed"])
+      .in("state", ["awaiting_contract", "unmapped", "failed", "ignored"])
       .order("last_attempt_at", { nullsFirst: true }).order("received_at").order("id").limit(100);
     if (receipts.error) throw new ApiError("Não foi possível consultar as pendências Payt.", 503);
-    let processed = 0, pending = 0;
+    let processed = 0, pending = 0, ignored = 0;
     for (const receipt of receipts.data ?? []) {
       const payload = objectValue(receipt.payload);
       const event = normalizePaytPayload(payload, contract);
@@ -71,8 +71,8 @@ export async function POST(_request: Request, route: { params: Promise<{ connect
         p_payload: payload, p_normalized: event.value ?? null, p_review_reason: event.reason ?? null });
       if (result.error) throw new ApiError("Uma pendência não pôde ser processada. Os eventos continuam armazenados.", 503);
       const state = objectValue(result.data).state;
-      if (state === "processed" || state === "test") processed++; else pending++;
+      if (state === "processed" || state === "test") processed++; else if (state === "ignored") ignored++; else pending++;
     }
-    return Response.json({ processed, pending, batchLimit: 100, batchFull: receipts.data?.length === 100 }, { headers: noStore });
+    return Response.json({ processed, pending, ignored, batchLimit: 100, batchFull: receipts.data?.length === 100 }, { headers: noStore });
   } catch (error) { return apiErrorResponse(error); }
 }

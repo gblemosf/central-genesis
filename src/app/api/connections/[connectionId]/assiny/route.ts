@@ -61,7 +61,7 @@ export async function POST(_request: Request, route: { params: Promise<{ connect
     if (!credentials.webhookToken) throw new ApiError("Credencial de recebimento indisponível.", 503);
     const receipts = await context.supabase.from("assiny_webhook_receipts").select("id,idempotency_key,payload")
       .eq("connection_id", connectionId).eq("organization_id", context.organizationId)
-      .in("state", ["awaiting_contract", "unmapped", "failed"])
+      .in("state", ["awaiting_contract", "unmapped", "failed", "ignored"])
       .order("last_attempt_at", { nullsFirst: true }).order("received_at").order("id").limit(100);
     if (receipts.error) throw new ApiError("Não foi possível consultar as pendências Assiny.", 503);
     let processed = 0, pending = 0, ignored = 0, tests = 0;
