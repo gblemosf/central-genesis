@@ -41,7 +41,7 @@ describe("verified PayT V1 contract", () => {
     p.status="expired";p.transaction.payment_status="expired";
     expect(normalizePaytPayload(p,paytV1Contract).value?.status).toBe("expired");
     const abandoned={...p,status:"lost_cart",transaction_id:"",transaction:undefined};
-    expect(normalizePaytPayload(abandoned,paytV1Contract).value).toMatchObject({status:"abandoned",transaction_id:"CART-EXAMPLE",external_kind:"cart"});
+    expect(normalizePaytPayload(abandoned,paytV1Contract).value).toMatchObject({status:"abandoned",transaction_id:"CART-EXAMPLE",external_kind:"lead"});
   });
   it("requires the approved ledger amounts for a full refund whose payload has zeroed amounts", () => {
     const p=paytPurchase();p.status="canceled";p.transaction.payment_status="refunded";p.transaction.total_price=0;

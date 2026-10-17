@@ -56,7 +56,7 @@ export function normalizePaytV1(payload: PaytObject, config: PaytObject) {
   const tracking = paytTracking(payload), customer = object(payload.customer);
   return { value: { provider: "payt", contract_version: 1, source_schema: "payt-v1", sandbox: payload.test,
     source_event: sourceStatus, source_status: sourceStatus, status, transaction_id: transactionId,
-    external_kind: status === "abandoned" && !payload.transaction_id ? "cart" : "invoice", occurred_at: occurredAt, currency: "BRL",
+    external_kind: status === "abandoned" && !payload.transaction_id ? "lead" : "invoice", occurred_at: occurredAt, currency: "BRL",
     product_external_id: items[0].product_external_id, product_name: items[0].product_name,
     financial_origin: financialOrigin, financial_scope: invoiceOnly ? "invoice" : "items",
     financial: { gross: gross / 100, platform_fee: fee === null ? null : fee / 100, net_after_fees: net === null ? null : net / 100,
