@@ -1,14 +1,7 @@
 name: Deploy Supabase
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "supabase/migrations/**"
-      - "supabase/functions/**"
-      - "supabase/config.toml"
-      - ".github/workflows/deploy-supabase.yml"
-  workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -27,29 +20,36 @@ jobs:
       SUPABASE_PROJECT_ID: hrcxlljvoemiaqhkihqp
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
 
-      - name: Check deployment credentials
-        id: credentials
+      - name: Verify validated commit is still main
         shell: bash
         run: |
-          if [[ -n "$SUPABASE_ACCESS_TOKEN" && -n "$SUPABASE_DB_PASSWORD" ]]; then
-            echo "ready=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Supabase deployment skipped. Configure SUPABASE_ACCESS_TOKEN and SUPABASE_DB_PASSWORD as repository secrets."
+          set -euo pipefail
+          checked_out_sha="$(git rev-parse HEAD)"
+          main_sha="$(git ls-remote origin refs/heads/main | cut -f1)"
+          if [[ "$checked_out_sha" != "$GITHUB_SHA" || "$main_sha" != "$GITHUB_SHA" ]]; then
+            echo "::error::Deployment refused: the validated commit must match the checkout and current main. Run CI for current main."
+            exit 1
+          fi
+
+      - name: Check deployment credentials
+        shell: bash
+        run: |
+          if [[ -z "$SUPABASE_ACCESS_TOKEN" || -z "$SUPABASE_DB_PASSWORD" ]]; then
+            echo "::error::Configure SUPABASE_ACCESS_TOKEN and SUPABASE_DB_PASSWORD as repository secrets."
+            exit 1
           fi
 
       - uses: supabase/setup-cli@v1
-        if: steps.credentials.outputs.ready == 'true'
         with:
           version: 2.117.0
 
       - name: Link production project
-        if: steps.credentials.outputs.ready == 'true'
         run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
 
       - name: Apply pending migrations
-        if: steps.credentials.outputs.ready == 'true'
         # GitHub-hosted runners use IPv4. Keep the password out of the URL and logs.
         run: >-
           supabase db push
@@ -57,7 +57,6 @@ jobs:
           --yes
 
       - name: Deploy Edge Functions
-        if: steps.credentials.outputs.ready == 'true'
         run: >-
           supabase functions deploy hubla-webhook fetch-meta-data payt-webhook assiny-webhook
           --project-ref "$SUPABASE_PROJECT_ID"
