@@ -112,5 +112,19 @@ select public.validate_gateway_finances('{"status":"paid","financial_scope":"inv
 $test$,'P0001','invalid gateway rounding difference','a larger mismatch is refused rather than hidden');
 select is(public.receive_payt_postback((select id from public.integration_connections where name='Gateway Items Connection'),repeat('7',64),'{"status":"refund_requested"}',null,'non_financial_event') ->> 'state','ignored','refund requests are retained without creating sales or reversals');
 select ok(not has_function_privilege('authenticated','public.validate_gateway_finances(jsonb,text)','EXECUTE'),'financial validation is internal');
+select lives_ok($test$
+do $$
+declare connection uuid; e jsonb; r jsonb;
+begin
+  select id into strict connection from public.integration_connections where name='Gateway Items Connection';
+  e:=jsonb_build_object('provider','payt','status','abandoned','transaction_id','payt-cart-identity','external_kind','lead',
+    'occurred_at',now(),'currency','BRL','financial',jsonb_build_object('gross',297),
+    'items',jsonb_build_array(jsonb_build_object('product_external_id','gateway-core','product_name','Core','quantity',1,'financial',jsonb_build_object('gross',297))));
+  r:=public.store_gateway_items(connection,e);perform public.store_gateway_items(connection,e);
+  if r ->> 'state'<>'processed' or (select count(*) from public.checkout_recovery_attempts where connection_id=connection and external_kind='lead' and external_id='payt-cart-identity' and status='abandoned')<>1 then raise exception 'Payt cart did not become one lead recovery attempt'; end if;
+  if exists(select 1 from public.sales_events where connection_id=connection and external_transaction_id='payt-cart-identity') then raise exception 'abandonment became revenue'; end if;
+end;
+$$;
+$test$,'Payt cart identity uses the canonical lead recovery contract, without duplicate attempts or revenue');
 select * from finish();
 rollback;
