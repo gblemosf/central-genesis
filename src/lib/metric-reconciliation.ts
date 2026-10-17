@@ -37,7 +37,7 @@ export function reconcileDailyMetrics(input: {
     rows.set(date, { date, investment: 0, coreSales: 0, impressions: 0, clicks: 0,
       pageViews: 0, checkouts: 0, ...base,
       // Legacy net fields have no reliable before/after-split contract.
-      revenue: 0, revenueAvailable: events.length > 0 && !base?.salesAvailable,
+      revenue: 0, revenueAvailable: events.length > 0 && !base?.salesAvailable, hasInvoiceAdjustments: false,
       salesAvailable: events.length > 0 || base?.salesAvailable === true,
       trafficAvailable: base?.trafficAvailable === true,
       productMetrics: (base?.productMetrics ?? []).map(item => ({ ...item, revenue: 0, revenueAvailable: false })),
@@ -51,6 +51,7 @@ export function reconcileDailyMetrics(input: {
       row.revenueAvailable = true; salesDates.add(date);
     }
     const facts = financialFacts(event);
+    if (event.payload && typeof event.payload === 'object' && 'financial_scope' in event.payload && event.payload.financial_scope === 'invoice') row.hasInvoiceAdjustments = true;
     if (facts.afterFees === null) row.revenueAvailable = false;
     else row.revenue = (cents(row.revenue) + cents(facts.afterFees)) / 100;
     const items = event.sales_event_items ?? [];

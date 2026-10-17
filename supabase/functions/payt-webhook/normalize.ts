@@ -1,3 +1,5 @@
+import { normalizePaytV1 } from "./v1.ts";
+
 export type JsonObject = Record<string, unknown>;
 export type PaytStatus = "paid" | "refunded" | "chargeback" | "pending" | "abandoned" | "failed" | "expired" | "other";
 
@@ -40,7 +42,7 @@ export function objectValue(value: unknown): JsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as JsonObject : {};
 }
 
-const sensitiveKeys = /^(?:.*(?:token|secret|password|authorization|api_?key|integration_?key|chave|document|cpf|cnpj|pix|qrcode|barcode|address|endereco).*|card|credit_?card|credit_?card_?number|cvv|cvc|pan|cookies|headers)$/i;
+const sensitiveKeys = /^(?:.*(?:token|secret|password|authorization|api_?key|integration_?key|chave|document|cpf|cnpj|pix|qrcode|barcode|bankslip|address|endereco).*|doc|ip|user_agent|card|credit_?card|credit_?card_?number|cvv|cvc|pan|cookies|headers)$/i;
 
 export function sanitizePaytPayload(value: unknown, depth = 0): unknown {
   if (depth > 30) throw new Error("Payload nesting limit exceeded");
@@ -102,6 +104,7 @@ function money(value: unknown, unit: PaytContract["amountUnit"]): number | null 
 export function normalizePaytPayload(payload: JsonObject, input: unknown) {
   const config = objectValue(input);
   if (config.version !== 1) return { reason: "awaiting_contract" as const };
+  if (config.schema === "payt-v1") return normalizePaytV1(payload, config);
   const contract = config as unknown as PaytContract;
   const statuses = objectValue(contract.statuses);
   const statusValue = text(field(payload, contract.statusPath), 120);
@@ -148,6 +151,7 @@ export function normalizePaytPayload(payload: JsonObject, input: unknown) {
   }).filter(([, value]) => value));
   const src = text(field(payload, contract.srcPath), 1_000) || checkoutUrl?.searchParams.get("src") || "";
   return {
+    reason: undefined,
     value: {
       sandbox: Boolean(contract.testPath && Array.isArray(contract.testValues) && contract.testValues.includes(String(field(payload, contract.testPath)))),
       status, transaction_id: transactionId, product_external_id: productId,

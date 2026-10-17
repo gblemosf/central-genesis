@@ -3,6 +3,15 @@ import { filterProductMetrics, presetPeriod, validAnalysisPeriod } from "./analy
 import type { ProjectDailyMetric } from "./domain";
 
 describe("analysis filters", () => {
+  it("retains exact invoice totals when all recorded products are selected, without allocating them to a subset", () => {
+    const row: ProjectDailyMetric = { date:"2026-10-03",investment:100,revenue:344.84,coreSales:1,clicks:0,impressions:0,pageViews:0,checkouts:0,
+      hasInvoiceAdjustments:true,revenueAvailable:true,salesAvailable:true,productMetrics:[
+        {productId:"core",stageId:"core",stageType:"core",productName:"Principal",quantity:1,revenue:0,revenueAvailable:false},
+        {productId:"bump",stageId:"bump",stageType:"order_bump",productName:"Adicional",quantity:1,revenue:0,revenueAvailable:false}]};
+    expect(filterProductMetrics([row],["core","bump"])[0]).toMatchObject({revenue:344.84,revenueAvailable:true});
+    expect(filterProductMetrics([row],["bump"])[0]).toMatchObject({revenue:0,revenueAvailable:false});
+    expect(filterProductMetrics([row],[])[0].revenue).toBe(0);
+  });
   it("does not manufacture known zero revenue from an unknown product allocation", () => {
     const row: ProjectDailyMetric = { date: "2026-10-02", investment: 0, revenue: 0, coreSales: 2, clicks: 0, impressions: 0, pageViews: 0, checkouts: 0, productMetrics: [], salesAvailable: true, revenueAvailable: false };
     expect(filterProductMetrics([row], ["unidentified"])[0].revenueAvailable).toBe(false);

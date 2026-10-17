@@ -75,5 +75,42 @@ begin
 end;
 $$;
 $test$, 'gateway items preserve totals, deduplication, refunds, recovery, delivery order and provider isolation');
+select lives_ok($test$
+do $$
+declare e jsonb; r jsonb; connection uuid; sale uuid;
+begin
+  select id into strict connection from public.integration_connections where name='Gateway Items Connection';
+  e:=jsonb_build_object('provider','payt','status','paid','transaction_id','invoice-only-test','occurred_at',now(),'currency','BRL','contract_version',1,
+    'financial_scope','invoice','financial',jsonb_build_object('gross',437.5,'platform_fee',92.66,'net_after_fees',344.84,'payout',172.42,
+      'reconciliation',jsonb_build_object('kind','invoice_only','gross_delta',93.5)),
+    'items',jsonb_build_array(
+      jsonb_build_object('product_external_id','gateway-core','product_name','Core','quantity',1,'financial',jsonb_build_object('gross',297,'platform_fee',null,'net_after_fees',null)),
+      jsonb_build_object('product_external_id','gateway-bump','product_name','Bump','quantity',1,'financial',jsonb_build_object('gross',47,'platform_fee',null,'net_after_fees',null))));
+  r:=public.store_gateway_items(connection,e);
+  if r ->> 'state'<>'processed' then raise exception 'invoice-only processing failed'; end if;
+  perform public.store_gateway_items(connection,e);
+  select id into strict sale from public.sales_events where connection_id=connection and external_transaction_id='invoice-only-test';
+  if (select gross_amount from public.sales_events where id=sale)<>437.5 or (select net_amount from public.sales_events where id=sale)<>344.84 then raise exception 'invoice totals changed'; end if;
+  if (select count(*) from public.sales_event_items where sales_event_id=sale and net_amount is null)<>2 or
+    (select sum(gross_amount) from public.sales_event_items where sales_event_id=sale)<>344 then raise exception 'item values were allocated'; end if;
+  e:=e || jsonb_build_object('status','refunded','financial_origin','original_sale','occurred_at',now()+interval '1 minute',
+    'financial',jsonb_build_object('gross',0,'platform_fee',0,'net_after_fees',0));
+  perform public.store_gateway_items(connection,e);perform public.store_gateway_items(connection,e);
+  if (select count(*) from public.sales_events where connection_id=connection and external_transaction_id='invoice-only-test')<>2 or
+    (select sum(net_amount) from public.sales_events where connection_id=connection and external_transaction_id='invoice-only-test')<>0 then raise exception 'original invoice was not reversed exactly once'; end if;
+  e:=jsonb_set(e,'{transaction_id}','"original-missing"');r:=public.store_gateway_items(connection,e);
+  if r ->> 'reason'<>'original_sale_required' or exists(select 1 from public.sales_events where connection_id=connection and external_transaction_id='original-missing') then raise exception 'refund without original entered ledger'; end if;
+end;
+$$;
+$test$,'invoice totals, unknown item fees, replay and original-sale refunds remain distinct');
+
+select lives_ok($test$
+select public.validate_gateway_finances('{"status":"paid","financial_scope":"invoice","financial":{"gross":345.80,"platform_fee":19.81,"net_after_fees":325.99,"reconciliation":{"kind":"reported_item_rounding","gross_delta":0,"platform_fee_delta":-0.01,"net_after_fees_delta":0.01}},"items":[{"financial":{"gross":282.15,"platform_fee":16.17,"net_after_fees":265.98}},{"financial":{"gross":63.65,"platform_fee":3.65,"net_after_fees":60}}]}','assiny');
+$test$,'Assiny preserves the separately reported invoice cent');
+select throws_ok($test$
+select public.validate_gateway_finances('{"status":"paid","financial_scope":"invoice","financial":{"gross":345.80,"platform_fee":19.80,"net_after_fees":326,"reconciliation":{"kind":"reported_item_rounding","gross_delta":0,"platform_fee_delta":-0.02,"net_after_fees_delta":0.02}},"items":[{"financial":{"gross":282.15,"platform_fee":16.17,"net_after_fees":265.98}},{"financial":{"gross":63.65,"platform_fee":3.65,"net_after_fees":60}}]}','assiny');
+$test$,'P0001','invalid gateway rounding difference','a larger mismatch is refused rather than hidden');
+select is(public.receive_payt_postback((select id from public.integration_connections where name='Gateway Items Connection'),repeat('7',64),'{"status":"refund_requested"}',null,'non_financial_event') ->> 'state','ignored','refund requests are retained without creating sales or reversals');
+select ok(not has_function_privilege('authenticated','public.validate_gateway_finances(jsonb,text)','EXECUTE'),'financial validation is internal');
 select * from finish();
 rollback;

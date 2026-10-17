@@ -53,6 +53,9 @@ select is((select count(*) from public.assiny_webhook_receipts),0::bigint,'admin
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000091';
 select is((select count(*) from public.assiny_webhook_receipts),1::bigint,'own administrator can inspect receipt');
 reset role;
+select is(public.receive_assiny_normalized((select id from public.integration_connections where name='Assiny Preparation'),repeat('a',64),repeat('9',64),'{"event":"pix_generated"}',null,'unsupported_event') ->> 'state','ignored','unknown event is retained without financial effects');
+select is(public.receive_assiny_normalized((select id from public.integration_connections where name='Assiny Preparation'),repeat('a',64),repeat('9',64),'{"event":"pix_generated"}','{"provider":"assiny","sandbox":true}',null) ->> 'state','test','an ignored receipt can be reclassified after its contract is implemented');
+select is((select count(*) from public.sales_events where connection_id=(select id from public.integration_connections where name='Assiny Preparation')),0::bigint,'reclassification of a test creates no financial event');
 select public.set_connection_secret((select id from public.integration_connections where name = 'Assiny Preparation'),
   jsonb_build_object('version',1,'provider','assiny','webhookToken',repeat('b',64))::text);
 select is(public.resolve_assiny_webhook_connection((select id from public.integration_connections where name = 'Assiny Preparation'),repeat('a',64)),null::uuid,'rotation rejects the old URL');

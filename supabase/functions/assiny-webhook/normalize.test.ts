@@ -15,6 +15,28 @@ function purchase() { return { event: "approved_purchase", data: {
     commissions: [{ amount: 16164, user: "Produtor A" }, { amount: 16164, user: "Produtor B" }] } } }; }
 
 describe("Assiny documented normalization", () => {
+  it("retains exact invoice and item amounts with an explicit one-cent reconciliation difference", () => {
+    const p=purchase();p.data.transaction.amount=34580;p.data.transaction.fee_amount=1981;p.data.transaction.net_amount=32599;
+    p.data.offer.amount=28215;p.data.offer.amount_assiny=1617;p.data.offer.amount_client=26598;
+    Object.assign(p.data.offer.order_bumps[0],{product_price:6365,amount_assiny:365,amount_client:6000});
+    const result=normalizeAssinyPayload(p,contract).value!;
+    expect(result).toMatchObject({financial_scope:"invoice",financial:{gross:345.8,platform_fee:19.81,net_after_fees:325.99,
+      reconciliation:{kind:"reported_item_rounding",gross_delta:0,platform_fee_delta:-0.01,net_after_fees_delta:0.01}}});
+    expect(result.items.map(i=>i.financial.net_after_fees)).toEqual([265.98,60]);
+    p.data.transaction.fee_amount=1980;p.data.transaction.net_amount=32600;
+    expect(normalizeAssinyPayload(p,contract).reason).toBe("financial_reconciliation_failed");
+  });
+  it("recognizes actual completion, refund and Pix event statuses without inferring a refund from its request", () => {
+    const p=purchase();p.event="completed_purchase";p.data.transaction.status="completed_purchase";
+    expect(normalizeAssinyPayload(p,contract).value?.status).toBe("paid");
+    p.event="refunded_purchase";p.data.transaction.status="refunded_purchase";
+    expect(normalizeAssinyPayload(p,contract).value?.status).toBe("refunded");
+    p.event="pix_generated";p.data.transaction.status="pix_generated";
+    expect(normalizeAssinyPayload(p,contract).value).toMatchObject({status:"pending",financial:{net_after_fees:null}});
+    p.event="pix_expired";p.data.transaction.status="pix_expired";
+    expect(normalizeAssinyPayload(p,contract).value?.status).toBe("expired");
+    for(const event of ["request_refund","resolved_refund"])expect(normalizeAssinyPayload({...p,event},contract).reason).toBe("non_financial_event");
+  });
   it("sums configured co-producers without allocating 50/50 or including affiliates", () => {
     const owners = { ...contract, payoutRecipients: ["Produtor A", "Produtor B", "Produtor A"] };
     const split = [

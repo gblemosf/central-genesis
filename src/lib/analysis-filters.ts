@@ -29,6 +29,9 @@ export function filterProductMetrics(rows: ProjectDailyMetric[], ids: string[] |
   if (ids === null) return rows;
   return rows.map((row) => {
     const products = row.productMetrics.filter((product) => ids.includes(product.productId));
+    if (row.hasInvoiceAdjustments && products.length > 0 && products.length === row.productMetrics.length) {
+      return { ...row, productMetrics: products, csvDaily: undefined };
+    }
     return { ...row, productMetrics: products, csvDaily: undefined,
       revenue: products.reduce((sum, product) => sum + product.revenue, 0),
       revenueAvailable: row.salesAvailable !== false && (products.length > 0

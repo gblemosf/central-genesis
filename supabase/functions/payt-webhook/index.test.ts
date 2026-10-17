@@ -9,7 +9,7 @@ const rpc = vi.fn();
 beforeEach(async () => {
   vi.resetModules(); createClient.mockReturnValue({ rpc });
   rpc.mockImplementation(async (name, args) => ({ data: name === "resolve_payt_webhook_connection" ? args.p_token === token ? connectionId : null
-    : name === "get_payt_webhook_contract" ? null : { duplicate: false, state: "awaiting_contract", mapped: false }, error: null }));
+    : name === "get_payt_webhook_contract" ? null : { receipt_id: "receipt", duplicate: false, state: "awaiting_contract", mapped: false }, error: null }));
   vi.stubGlobal("Deno", { env: { get: () => "configured" }, serve: (callback: typeof handler) => { handler = callback; } });
   await import("./index");
 });
@@ -39,6 +39,10 @@ describe("Payt authenticated durable receiver", () => {
   it("returns a retryable failure when storage fails", async () => {
     rpc.mockImplementation(async name => ({ data: name === "resolve_payt_webhook_connection" ? connectionId : null,
       error: name === "receive_payt_postback" ? { message: "failure" } : null }));
+    expect((await handler(request())).status).toBe(500);
+  });
+  it("does not acknowledge a response that lacks the persisted receipt identity", async () => {
+    rpc.mockImplementation(async name => ({data:name==="resolve_payt_webhook_connection"?connectionId:null,error:null}));
     expect((await handler(request())).status).toBe(500);
   });
 });

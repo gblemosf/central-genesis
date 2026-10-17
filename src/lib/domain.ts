@@ -71,6 +71,7 @@ export interface ProductDailyMetric {
 }
 
 export interface ProjectDailyMetric extends DailyMetric {
+  hasInvoiceAdjustments?: boolean;
   productMetrics: ProductDailyMetric[];
   csvDaily?: {
     core: number;
